@@ -1,0 +1,41 @@
+2026-03-12 00:02:45 | INFO     | [APP_START] ExamShield launched with admin privileges
+2026-03-12 00:02:51 | INFO     | [ADMIN_LOGIN] Session started for: admin
+2026-03-12 00:03:52 | INFO     | [KEYBOARD_HOOKS] Hooks activated
+2026-03-12 00:03:52 | WARNING  | [SECURITY:BLOCKED] [SUSPICIOUS_PROCESS] Terminated: pwsh.exe
+2026-03-12 00:03:52 | INFO     | [EXAM_MODE_START] Active modules: keyboard, processes
+2026-03-12 00:03:52 | WARNING  | [SECURITY:BLOCKED] [SUSPICIOUS_PROCESS] Terminated: pwsh.exe
+2026-03-12 00:03:52 | WARNING  | [SECURITY:BLOCKED] [SUSPICIOUS_PROCESS] Terminated: pwsh.exe
+2026-03-12 00:04:01 | WARNING  | [SECURITY:BLOCKED] [BLOCKED_KEY] Blocked: win+d
+2026-03-12 00:04:06 | WARNING  | [SECURITY:BLOCKED] [BLOCKED_KEY] Blocked: alt+tab
+2026-03-12 00:04:31 | WARNING  | [SECURITY:BLOCKED] [BLOCKED_KEY] Blocked: win+d
+2026-03-12 00:04:36 | WARNING  | [SECURITY:BLOCKED] [BLOCKED_KEY] Blocked: ctrl+shift+esc
+2026-03-12 00:04:55 | INFO     | [KEYBOARD_HOOKS] Hooks removed
+2026-03-12 00:04:55 | INFO     | [EXAM_MODE_STOP] All restrictions removed
+2026-03-12 00:05:13 | INFO     | [NET_BLOCK_START] Internet blocking activated
+2026-03-12 00:05:13 | INFO     | [EXAM_MODE_START] Active modules: internet
+2026-03-12 00:06:27 | INFO     | [KEYBOARD_HOOKS] Hooks removed
+2026-03-12 00:06:27 | INFO     | [NET_BLOCK_STOP] Internet access restored
+2026-03-12 00:06:27 | INFO     | [EXAM_MODE_STOP] All restrictions removed
+2026-03-12 00:06:42 | INFO     | [MOUSE_BLOCKING_START] Blocking: middle, x1, x2, side
+2026-03-12 00:07:01 | WARNING  | [SECURITY:BLOCKED] [BLOCKED_MOUSE] Blocked x2 button
+2026-03-12 00:07:01 | WARNING  | [SECURITY:BLOCKED] [BLOCKED_MOUSE] Blocked x2 button
+2026-03-12 00:07:46 | INFO     | [APP_CLEANUP] Graceful shutdown complete
+2026-03-12 00:13:41 | INFO     | [APP_START] ExamShield launched with admin privileges
+2026-03-12 00:13:59 | INFO     | [ADMIN_LOGIN] Session started for: admin
+2026-03-12 00:16:16 | INFO     | [MOUSE_BLOCKING_START] Blocking: right, middle, double, side
+2026-03-12 00:16:24 | WARNING  | [SECURITY:BLOCKED] [BLOCKED_MOUSE] Blocked right at (1302,384)
+2026-03-12 00:16:58 | INFO     | [MOUSE_BLOCKING_STOP] Mouse blocking deactivated
+2026-03-12 00:17:09 | INFO     | [MOUSE_BLOCKING_START] Blocking: right, middle, double, side
+2026-03-12 00:17:09 | INFO     | [WIN_PROTECT_START] Window protection activated
+2026-03-12 00:17:09 | INFO     | [EXAM_MODE_START] Active modules: mouse, windows
+2026-03-12 00:17:09 | INFO     | [SECURITY:ALLOWED] [ENFORCED_FULLSCREEN] Forced fullscreen: ExamShield v1.0 - Antigravity - admin_panel.py
+2026-03-12 00:17:10 | INFO     | [SECURITY:ALLOWED] [ENFORCED_FULLSCREEN] Forced fullscreen: kobzx2z - you broke my heart
+2026-03-12 00:17:10 | INFO     | [SECURITY:ALLOWED] [ENFORCED_FULLSCREEN] Forced fullscreen: 
+2026-03-12 00:17:14 | INFO     | [SECURITY:ALLOWED] [ENFORCED_FULLSCREEN] Forced fullscreen: kobzx2z - you broke my heart
+2026-03-12 00:17:15 | INFO     | [SECURITY:ALLOWED] [ENFORCED_FULLSCREEN] Forced fullscreen: kobzx2z - you broke my heart
+2026-03-12 00:17:17 | INFO     | [SECURITY:ALLOWED] [ENFORCED_FULLSCREEN] Forced fullscreen: kobzx2z - you broke my heart
+2026-03-12 00:17:28 | WARNING  | [SECURITY:BLOCKED] [BLOCKED_MOUSE] Blocked side at (1186,1048)
+2026-03-12 00:17:38 | INFO     | [KEYBOARD_HOOKS] Hooks removed
+2026-03-12 00:17:38 | INFO     | [MOUSE_BLOCKING_STOP] Mouse blocking deactivated
+2026-03-12 00:17:38 | INFO     | [WIN_PROTECT_STOP] Window protection deactivated
+2026-03-12 00:17:38 | INFO     | [EXAM_MODE_STOP] All restrictions removed

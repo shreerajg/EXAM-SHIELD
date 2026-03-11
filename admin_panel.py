@@ -388,24 +388,67 @@ class AdminPanel:
     def _build_mouse_settings(self, parent):
         f = tk.LabelFrame(parent, text="🖱  Mouse Blocking",
                            bg=C['bg'], fg=C['primary'],
-                           font=('Segoe UI', 10, 'bold'), padx=10, pady=10)
+                           font=('Segoe UI', 10, 'bold'), padx=12, pady=12)
         f.pack(fill=tk.X, padx=16, pady=10)
-        row = tk.Frame(f, bg=C['bg'])
-        row.pack(fill=tk.X, pady=(0, 6))
-        self._mouse_lb = tk.Listbox(row, height=4, bg=C['input_bg'],
-                                     fg=C['text'],
-                                     selectbackground=C['primary_dark'],
-                                     font=('Consolas', 10), relief=tk.FLAT,
-                                     highlightthickness=1,
-                                     highlightcolor=C['border'])
-        self._mouse_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
-        self._load_mouse_list()
-        btns = tk.Frame(row, bg=C['bg'])
-        btns.pack(side=tk.RIGHT, fill=tk.Y)
-        for t, cmd in [('🎯 Detect', self._detect_mouse),
-                       ('⌨ Type',   self._add_mouse_manual),
-                       ('Remove',   self._remove_mouse)]:
-            styled_btn(btns, t, cmd, bg=C['surface']).pack(fill=tk.X, pady=2)
+
+        # Description
+        tk.Label(f, text="Choose which mouse actions to block during lockdown:",
+                 font=('Segoe UI', 9), bg=C['bg'],
+                 fg=C['text_dim']).pack(anchor=tk.W, pady=(0, 8))
+
+        # ── Checkbox grid ────────────────────────────────────────
+        self._mouse_flags = {
+            'left':     tk.BooleanVar(value=False),
+            'right':    tk.BooleanVar(value=False),
+            'middle':   tk.BooleanVar(value=True),
+            'double':   tk.BooleanVar(value=False),
+            'side':     tk.BooleanVar(value=True),
+            'movement': tk.BooleanVar(value=False),
+        }
+        options = [
+            ('left',     '🖱  Left Click',        'Block primary (left) mouse button'),
+            ('right',    '🖱  Right Click',       'Block context menu (right) button'),
+            ('middle',   '🖱  Middle Click',      'Block scroll-wheel click'),
+            ('double',   '🖱  Double Click',      'Suppress rapid double-clicks (400 ms window)'),
+            ('side',     '🖱  Side / X Buttons',  'Block X1, X2, back/forward buttons'),
+            ('movement', '🔒  Block All Movement','Lock cursor in place — student cannot move mouse'),
+        ]
+        grid = tk.Frame(f, bg=C['bg'])
+        grid.pack(fill=tk.X, pady=(0, 10))
+        for i, (key, label, tip) in enumerate(options):
+            col = i % 2          # 2 columns
+            row_idx = i // 2
+            cell = tk.Frame(grid, bg=C['surface'], padx=10, pady=8)
+            cell.grid(row=row_idx, column=col, padx=(0, 8), pady=4, sticky='ew')
+            grid.columnconfigure(col, weight=1)
+            var = self._mouse_flags[key]
+            cb = tk.Checkbutton(
+                cell, text=f"  {label}", variable=var,
+                font=('Segoe UI', 10, 'bold'),
+                bg=C['surface'], fg=C['text'],
+                selectcolor=C['input_bg'],
+                activebackground=C['surface'],
+                activeforeground=C['primary'],
+                command=self._sync_mouse_flags,
+            )
+            cb.pack(anchor=tk.W)
+            tk.Label(cell, text=f"  {tip}",
+                     font=('Segoe UI', 8), bg=C['surface'],
+                     fg=C['text_dim']).pack(anchor=tk.W)
+
+        # ── Status line + Apply button
+        bottom = tk.Frame(f, bg=C['bg'])
+        bottom.pack(fill=tk.X, pady=(4, 0))
+        self._mouse_status = tk.Label(
+            bottom, text="No mouse restrictions active.",
+            font=('Consolas', 9), bg=C['bg'], fg=C['text_dim'])
+        self._mouse_status.pack(side=tk.LEFT)
+        styled_btn(bottom, '✅  Apply Mouse Settings',
+                   self._apply_mouse_flags,
+                   bg=C['primary'], fg='#0a0a0a').pack(side=tk.RIGHT)
+
+        # Sync initial state from manager
+        self._pull_mouse_flags_from_manager()
 
     def _build_network_settings(self, parent):
         f = tk.LabelFrame(parent, text="🌐  Network Blocking",
@@ -809,6 +852,52 @@ class AdminPanel:
             self._mouse_listener = None
         dlg.destroy()
 
+    # ── Mouse flag helpers ────────────────────────────────────────
+    def _sync_mouse_flags(self):
+        """Update status label whenever a checkbox changes."""
+        active = [k for k, v in self._mouse_flags.items() if v.get()]
+        if active:
+            labels = {
+                'left': 'Left', 'right': 'Right', 'middle': 'Middle',
+                'double': 'DblClick', 'side': 'Side', 'movement': 'Movement'
+            }
+            txt = 'Will block: ' + ', '.join(labels[k] for k in active)
+            self._mouse_status.config(text=txt, fg=C['warning'])
+        else:
+            self._mouse_status.config(
+                text='No mouse restrictions selected.',
+                fg=C['text_dim'])
+
+    def _apply_mouse_flags(self):
+        """Push checkbox state into MouseManager and restart if active."""
+        flags = {k: v.get() for k, v in self._mouse_flags.items()}
+        # Restart blocking with new flags if currently active
+        was_active = self.sec.mouse_manager.is_active
+        if was_active:
+            self.sec.mouse_manager.stop_blocking()
+        self.sec.mouse_manager.apply_flags(flags)
+        if was_active:
+            self.sec.mouse_manager.start_blocking()
+        active = [k for k, v in flags.items() if v]
+        if active:
+            self._toast(
+                f"🖱  Mouse rules applied: {', '.join(active)}",
+                C['primary'])
+        else:
+            self._toast("🖱  All mouse restrictions cleared", C['text_dim'])
+        self._sync_mouse_flags()
+
+    def _pull_mouse_flags_from_manager(self):
+        """Read current flags from manager into checkboxes."""
+        try:
+            flags = self.sec.mouse_manager.get_flags()
+            for k, v in flags.items():
+                if k in self._mouse_flags:
+                    self._mouse_flags[k].set(v)
+            self._sync_mouse_flags()
+        except Exception:
+            pass
+
     # ── List management ───────────────────────────────────────────
     def _load_keys_list(self):
         self._keys_lb.delete(0, tk.END)
@@ -834,24 +923,14 @@ class AdminPanel:
         self._load_keys_list()
 
     def _load_mouse_list(self):
-        self._mouse_lb.delete(0, tk.END)
-        for b in self.sec.mouse_manager.blocked_buttons:
-            self._mouse_lb.insert(tk.END, b)
+        """No-op now — mouse settings uses checkboxes, not a listbox."""
+        pass
 
     def _add_mouse_manual(self):
-        btn = simpledialog.askstring(
-            'Add Button', "Button name (middle, x1, x2):",
-            parent=self.window)
-        if btn and btn.strip() not in self.sec.mouse_manager.blocked_buttons:
-            self.sec.mouse_manager.add_blocked_button(btn.strip())
-            self._load_mouse_list()
+        pass
 
     def _remove_mouse(self):
-        sel = self._mouse_lb.curselection()
-        if sel:
-            self.sec.mouse_manager.remove_blocked_button(
-                self._mouse_lb.get(sel[0]))
-            self._load_mouse_list()
+        pass
 
     def _load_website_list(self):
         self._web_lb.delete(0, tk.END)
@@ -947,12 +1026,16 @@ class AdminPanel:
 
     # ── Quick module toggles ──────────────────────────────────────
     def _show_mouse_ctrl(self):
+        flags = self.sec.mouse_manager.get_flags()
+        active_list = [k for k, v in flags.items() if v]
+        info = ('Blocking: ' + ', '.join(active_list)) if active_list \
+               else 'No restrictions configured — set them in Settings tab'
         self._quick_toggle(
             'Mouse Blocking',
             self.sec.mouse_manager.is_active,
-            self.sec.mouse_manager.start_blocking,
+            lambda: self.sec.mouse_manager.start_blocking(),
             self.sec.mouse_manager.stop_blocking,
-            f"Blocked: {', '.join(self.sec.mouse_manager.blocked_buttons)}")
+            info)
 
     def _show_network_ctrl(self):
         self._quick_toggle(
@@ -1126,5 +1209,5 @@ class AdminPanel:
         self.window.lift()
         self._refresh_status()
         self._load_keys_list()
-        self._load_mouse_list()
         self._load_website_list()
+        self._pull_mouse_flags_from_manager()
