@@ -1,114 +1,114 @@
 """
-Mouse Manager for Exam Shield
-Handles mouse button blocking and restrictions
+ExamShield v1.0 — Mouse Manager
+Low-level mouse button suppression via pynput.
 """
-
 import threading
-import time
-from pynput import mouse
+from pynput import mouse as pynput_mouse
 from config import Config
+from logger import ExamShieldLogger
+
 
 class MouseManager:
     def __init__(self, db_manager):
         self.db_manager = db_manager
+        self.log = ExamShieldLogger(db_manager)
         self.is_active = False
         self.listener = None
         self.blocked_buttons = Config.BLOCKED_MOUSE_BUTTONS.copy()
+        self._lock = threading.Lock()
 
+    # ── Start / Stop ─────────────────────────────────────────────
     def start_blocking(self):
-        if self.is_active:
-            return
-        self.is_active = True
+        with self._lock:
+            if self.is_active:
+                return
+            self.is_active = True
         try:
-            self.listener = mouse.Listener(
-                on_click=self._on_mouse_click,
+            self.listener = pynput_mouse.Listener(
+                on_click=self._on_click,
                 suppress=True,
-                win32_event_filter=self._win32_event_filter
+                win32_event_filter=self._win32_filter,
             )
             self.listener.start()
-            self.db_manager.log_activity("MOUSE_BLOCKING_START",
-                                         f"Blocked buttons: {', '.join(self.blocked_buttons)}")
-            print("✅ Mouse blocking activated")
+            self.log.info("MOUSE_BLOCKING_START",
+                          f"Blocking: {', '.join(self.blocked_buttons)}")
         except Exception as e:
-            print(f"❌ Error starting mouse blocking: {e}")
-            self.is_active = False
+            self.log.error("MOUSE_BLOCKING", f"Start failed: {e}")
+            with self._lock:
+                self.is_active = False
 
     def stop_blocking(self):
-        if not self.is_active:
-            return
-        self.is_active = False
+        with self._lock:
+            if not self.is_active:
+                return
+            self.is_active = False
         if self.listener:
             try:
                 self.listener.stop()
-                self.listener = None
-                self.db_manager.log_activity("MOUSE_BLOCKING_STOP",
-                                             "Mouse blocking deactivated")
-                print("✅ Mouse blocking deactivated")
-            except Exception as e:
-                print(f"❌ Error stopping mouse blocking: {e}")
+            except Exception:
+                pass
+            self.listener = None
+        self.log.info("MOUSE_BLOCKING_STOP", "Mouse blocking deactivated")
 
-    def _win32_event_filter(self, msg, data):
+    # ── Win32 low-level filter ───────────────────────────────────
+    def _win32_filter(self, msg, data):
         if not self.is_active:
             return True
-        blocked_messages = []
+        blocked_msgs = set()
         if 'middle' in self.blocked_buttons:
-            blocked_messages.extend([0x0207, 0x0208])  # WM_MBUTTONDOWN, WM_MBUTTONUP
-        if 'x1' in self.blocked_buttons or 'x2' in self.blocked_buttons:
-            blocked_messages.extend([0x020B, 0x020C])  # WM_XBUTTONDOWN, WM_XBUTTONUP
-        if 'side' in self.blocked_buttons:
-            blocked_messages.extend([0x020B, 0x020C])  # Side buttons use XBUTTON messages
-        if msg in blocked_messages:
-            button_name = self._get_button_from_message(msg, data)
-            self.db_manager.log_activity("BLOCKED_MOUSE_BUTTON",
-                                         f"Blocked {button_name} mouse button", blocked=True)
-            print(f"🚫 Blocked mouse button: {button_name}")
+            blocked_msgs.update({0x0207, 0x0208})
+        if any(b in self.blocked_buttons for b in ('x1', 'x2', 'side')):
+            blocked_msgs.update({0x020B, 0x020C})
+        if msg in blocked_msgs:
+            btn = self._button_from_msg(msg, data)
+            self.log.security("BLOCKED_MOUSE", f"Blocked {btn} button", blocked=True)
             self.listener.suppress_event()
             return False
         return True
 
-    def _get_button_from_message(self, msg, data):
-        if msg in [0x0207, 0x0208]:
+    def _button_from_msg(self, msg, data):
+        if msg in (0x0207, 0x0208):
             return "middle"
-        elif msg in [0x020B, 0x020C]:
+        if msg in (0x020B, 0x020C):
             if hasattr(data, 'mouseData'):
-                if data.mouseData >> 16 == 1:
+                hi = data.mouseData >> 16
+                if hi == 1:
                     return "x1"
-                elif data.mouseData >> 16 == 2:
+                if hi == 2:
                     return "x2"
             return "side"
         return "unknown"
 
-    def _on_mouse_click(self, x, y, button, pressed):
+    # ── pynput callback ──────────────────────────────────────────
+    def _on_click(self, x, y, button, pressed):
         if not self.is_active or not pressed:
             return True
-        button_name = self._get_button_name(button)
-        if button_name in self.blocked_buttons:
-            self.db_manager.log_activity("BLOCKED_MOUSE_BUTTON",
-                                         f"Attempted to use: {button_name} at ({x}, {y})",
-                                         blocked=True)
-            print(f"🚫 Blocked mouse button: {button_name}")
+        name = self._button_name(button)
+        if name in self.blocked_buttons:
+            self.log.security("BLOCKED_MOUSE",
+                              f"Blocked {name} at ({x},{y})", blocked=True)
             return False
         return True
 
-    def _get_button_name(self, button):
-        button_map = {
-            mouse.Button.left: 'left',
-            mouse.Button.right: 'right',
-            mouse.Button.middle: 'middle',
+    def _button_name(self, button):
+        mapping = {
+            pynput_mouse.Button.left: 'left',
+            pynput_mouse.Button.right: 'right',
+            pynput_mouse.Button.middle: 'middle',
         }
+        if button in mapping:
+            return mapping[button]
+        if hasattr(button, 'value'):
+            return {8: 'x1', 9: 'x2'}.get(button.value, 'unknown')
         if hasattr(button, 'name'):
             return button.name
-        elif hasattr(button, 'value'):
-            if button.value == 8:
-                return 'x1'
-            elif button.value == 9:
-                return 'x2'
-        return button_map.get(button, 'unknown')
+        return 'unknown'
 
-    def add_blocked_button(self, button_name):
-        if button_name not in self.blocked_buttons:
-            self.blocked_buttons.append(button_name)
+    # ── Dynamic list management ──────────────────────────────────
+    def add_blocked_button(self, name):
+        if name not in self.blocked_buttons:
+            self.blocked_buttons.append(name)
 
-    def remove_blocked_button(self, button_name):
-        if button_name in self.blocked_buttons:
-            self.blocked_buttons.remove(button_name)
+    def remove_blocked_button(self, name):
+        if name in self.blocked_buttons:
+            self.blocked_buttons.remove(name)

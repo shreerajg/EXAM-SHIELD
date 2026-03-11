@@ -1,0 +1,123 @@
+# ExamShield v1.0 — Bug Fixes & Reliability Implementation Plan
+
+ExamShield is a Python/Tkinter desktop app that creates a secure exam environment by blocking keyboard shortcuts, mouse buttons, internet access, and suspicious processes. After a full code audit, I identified **15+ bugs** ranging from crashes to code quality issues.
+
+## User Review Required
+
+> [!CAUTION]
+> **5 critical bugs** will crash the app on first run or during normal operations. These must be fixed first.
+
+> [!IMPORTANT]
+> The [logger.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/logger.py) module ([ExamShieldLogger](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/logger.py#10-67)) exists but is **never imported or used** anywhere. Should I integrate it into all managers, or would you prefer to keep the current `print()` + DB logging approach?
+
+---
+
+## Proposed Changes
+
+### Config / Database Layer
+
+#### [MODIFY] [config.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/config.py)
+- No changes needed here — the constants `DEFAULT_ADMIN_USERNAME` and `DEFAULT_ADMIN_PASSWORD` are correctly named
+
+#### [MODIFY] [database_manager.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/database_manager.py)
+- **Lines 81, 85**: Fix `Config.DEFAULT_PASSWORD` → `Config.DEFAULT_ADMIN_PASSWORD` and `Config.DEFAULT_USERNAME` → `Config.DEFAULT_ADMIN_USERNAME`
+- Add `clear_all_logs()` method for the "Clear All" button to actually delete DB records
+- Add [get_setting()](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/database_manager.py#138-148) defaults loading at startup
+
+---
+
+### Security Managers
+
+#### [MODIFY] [security_manager.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/security_manager.py)
+- Fix [stop_process_monitoring()](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/security_manager.py#127-130): set a `threading.Event` stop flag instead of just nullifying the thread reference
+- Store selective blocking state so threat detection can reference which modules were intentionally disabled
+
+#### [MODIFY] [mouse_manager.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/mouse_manager.py)
+- No critical bugs — works correctly with `pynput`
+
+#### [MODIFY] [network_manager.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/network_manager.py)
+- Replace bare `except:` clauses with proper exception types
+- Ensure [stop_blocking()](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/mouse_manager.py#36-49) is always called during app exit (even on crash)
+
+#### [MODIFY] [window_manager.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/window_manager.py)
+- **Add `import os`** — missing import causes [launch_secure_browser()](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/window_manager.py#113-144) to crash with `NameError`
+- Replace bare `except:` clauses
+
+---
+
+### Admin Panel (UI)
+
+#### [MODIFY] [admin_panel.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py)
+- **Line 886**: Fix `datetime.now()` → `datetime.datetime.now()` (or add import)
+- **Line 934**: Fix `datetime.fromisoformat()` → `datetime.datetime.fromisoformat()`
+- Fix [cancel_key_detection()](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py#458-466): don't call `keyboard.unhook_all()` — instead, remove only the detection hook
+- Fix [clear_logs()](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py#855-863): call `db_manager.clear_all_logs()` to also delete from DB
+- Fix threat detection in [refresh_status()](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py#616-666): account for selective blocking options so intentionally-disabled modules aren't flagged as threats
+- Load saved settings from DB on startup (blocked keys, mouse buttons, etc.)
+- Fix [start_auto_refresh()](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py#900-914): use `time.sleep(2)` instead of `threading.Event().wait(2)`
+
+---
+
+### System Tray
+
+#### [MODIFY] [system_tray.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/system_tray.py)
+- Accept and reuse existing `db_manager` instance instead of creating a new [DatabaseManager()](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/database_manager.py#13-158) on lines 60 and 80
+- Fix creating new `tk.Tk()` instances (conflicts with existing Tkinter root) — use `Toplevel` or pass root reference
+
+---
+
+### Main Entry Point
+
+#### [MODIFY] [main.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/main.py)
+- Add `atexit` handler and `WM_DELETE_WINDOW` handler for graceful cleanup (stop security managers, restore hosts file, unhook keyboard)
+- Fix version string inconsistency (title says v1.1 but folder is v1.0)
+
+---
+
+### Dependencies
+
+#### [MODIFY] [requirements.txt](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/requirements.txt)
+- Add `pynput` — used in [mouse_manager.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/mouse_manager.py) and [admin_panel.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py) but not listed
+
+---
+
+## Summary of All Fixes
+
+| # | File | Bug | Severity |
+|---|------|-----|----------|
+| 1 | [database_manager.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/database_manager.py) | `Config.DEFAULT_PASSWORD` doesn't exist (crashes first run) | 🔴 Critical |
+| 2 | [requirements.txt](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/requirements.txt) | `pynput` missing (import error) | 🔴 Critical |
+| 3 | [admin_panel.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py) | `datetime.now()` should be `datetime.datetime.now()` | 🔴 Critical |
+| 4 | [admin_panel.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py) | `datetime.fromisoformat()` wrong reference | 🔴 Critical |
+| 5 | [window_manager.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/window_manager.py) | Missing `import os` | 🔴 Critical |
+| 6 | [admin_panel.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py) | `keyboard.unhook_all()` disrupts exam hooks | 🟡 High |
+| 7 | [system_tray.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/system_tray.py) | Creates redundant DB instances + Tk roots | 🟡 High |
+| 8 | [admin_panel.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py) | Clear logs only clears display | 🟡 High |
+| 9 | [admin_panel.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py) | Threat detection false positives with selective blocking | 🟡 High |
+| 10 | [admin_panel.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py) | Settings not loaded from DB on startup | 🟡 High |
+| 11 | Various | Bare `except:` clauses | 🟠 Medium |
+| 12 | [logger.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/logger.py) | Defined but never used | 🟠 Medium |
+| 13 | [security_manager.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/security_manager.py) | [stop_process_monitoring](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/security_manager.py#127-130) doesn't stop thread | 🟠 Medium |
+| 14 | [main.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/main.py) | No graceful cleanup on exit | 🟠 Medium |
+| 15 | [admin_panel.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py) | Auto-refresh uses `Event().wait()` | 🟠 Medium |
+
+---
+
+## Verification Plan
+
+### Manual Testing (User)
+
+Since this is a Windows desktop app requiring admin privileges, automated testing is limited. The verification approach:
+
+1. **First-run test**: Delete [exam_shield.db](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/exam_shield.db), run `python main.py` — verify the app starts without crashing and creates the default admin account
+2. **Login test**: Log in with [admin](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/main.py#37-42)/[admin](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/main.py#37-42) — verify admin panel opens
+3. **Selective lockdown test**: Start a selective lockdown with only keyboard + process monitoring → verify threat detection doesn't falsely flag mouse/network as "inactive threats"
+4. **Key detection test**: Go to Settings → Detect Key → press a key combo → verify the existing exam hooks are NOT disrupted after canceling detection
+5. **Clear logs test**: Add some activity, go to Logs tab, click "Clear All" → verify logs are cleared from both display AND the database
+6. **Export logs test**: Click Export → save as [.txt](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/requirements.txt) → verify no crash (the `datetime.now()` fix)
+7. **Internet blocking test**: Start internet blocking → verify sites are blocked → Stop blocking → verify internet is restored and hosts file is clean
+8. **App exit test**: Close the app → verify all hooks are removed, hosts file is restored, and no orphan processes remain
+9. **System tray test**: Minimize to tray → use "Stop Exam Mode" → verify password check works without creating extra windows
+
+> [!TIP]
+> I recommend testing each fix category incrementally rather than all at once, so we can isolate any remaining issues.

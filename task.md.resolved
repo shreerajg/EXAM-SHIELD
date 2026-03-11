@@ -1,0 +1,27 @@
+# ExamShield v1.0 - Bug Fixes & Reliability Improvements
+
+## Critical Bugs (App crashes or core features broken)
+- [ ] Fix `Config.DEFAULT_PASSWORD` / `Config.DEFAULT_USERNAME` → should be `DEFAULT_ADMIN_PASSWORD` / `DEFAULT_ADMIN_USERNAME` in [database_manager.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/database_manager.py) (crashes on first run)
+- [ ] Add `pynput` to [requirements.txt](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/requirements.txt) (import fails in [admin_panel.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py) and [mouse_manager.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/mouse_manager.py))
+- [ ] Fix `datetime.now()` → `datetime.datetime.now()` in `admin_panel.py:export_logs`
+- [ ] Fix `datetime.fromisoformat()` → `datetime.datetime.fromisoformat()` in `admin_panel.py:update_activity_feed`
+- [ ] Add missing `import os` in [window_manager.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/window_manager.py) (crashes [launch_secure_browser](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/window_manager.py#113-144))
+
+## High-Priority Bugs (Features misbehave)
+- [ ] Fix `keyboard.unhook_all()` in [cancel_key_detection](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py#458-466) disrupting active exam-mode hooks
+- [ ] Fix [system_tray.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/system_tray.py) creating redundant [DatabaseManager](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/database_manager.py#13-158) instances instead of reusing the existing one
+- [ ] Fix [clear_logs](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/admin_panel.py#855-863) only clearing display, not DB records
+- [ ] Fix threat detection false positives during selective blocking (shows modules as "inactive" when they were intentionally not selected)
+- [ ] Fix settings not being loaded from DB on startup (saved settings are ignored on restart)
+
+## Medium-Priority Issues (Code quality & reliability)
+- [ ] Remove bare `except:` clauses and add proper exception handling throughout
+- [ ] Integrate [logger.py](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/logger.py) ([ExamShieldLogger](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/logger.py#10-67)) which is defined but never used
+- [ ] Fix auto-refresh thread using `threading.Event().wait()` instead of `time.sleep()`
+- [ ] Add graceful cleanup on app exit (stop security managers, restore hosts, remove hooks)
+- [ ] Fix [stop_process_monitoring](file:///c:/Users/shree/OneDrive/Desktop/ExamShield%20v1.0/security_manager.py#127-130) not actually stopping the thread (just sets reference to None)
+
+## Low-Priority Improvements (Polish)
+- [ ] Add password change functionality (currently hardcoded default only)
+- [ ] Persist blocked keys/mouse/websites changes across restarts
+- [ ] Add proper version consistency (v1.0 vs v1.1 mismatch in various places)

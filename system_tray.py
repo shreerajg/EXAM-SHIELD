@@ -1,97 +1,114 @@
 """
-System Tray functionality for Exam Shield
+ExamShield v1.0 — System Tray
+Runs in background, provides quick access to admin panel.
 """
-
 import pystray
 from PIL import Image, ImageDraw
-import threading
+import hashlib
+import sys
 import tkinter as tk
 from tkinter import simpledialog, messagebox
+from logger import ExamShieldLogger
+
 
 class SystemTray:
-    def __init__(self, admin_panel, security_manager):
+    def __init__(self, admin_panel, security_manager, db_manager,
+                 parent_window, admin_user='admin'):
         self.admin_panel = admin_panel
         self.security_manager = security_manager
+        self.db_manager = db_manager
+        self.parent = parent_window
+        self.admin_user = admin_user
+        self.log = ExamShieldLogger(db_manager)
         self.icon = None
         self.running = False
 
-    def create_icon_image(self):
-        image = Image.new('RGB', (64, 64), color='white')
-        draw = ImageDraw.Draw(image)
-        draw.polygon([(32, 5), (55, 20), (55, 45), (32, 59), (9, 45), (9, 20)],
-                     fill='blue', outline='darkblue')
-        draw.rectangle([25, 30, 39, 42], fill='white')
-        draw.rectangle([27, 25, 37, 35], outline='white', width=2)
-        return image
+    # ── Icon ─────────────────────────────────────────────────────
+    def _create_icon(self):
+        img = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        # Shield
+        draw.polygon(
+            [(32, 4), (58, 18), (58, 42), (32, 60), (6, 42), (6, 18)],
+            fill='#00d4ff', outline='#0088aa',
+        )
+        draw.polygon(
+            [(32, 12), (50, 22), (50, 38), (32, 50), (14, 38), (14, 22)],
+            fill='#0a0a1a',
+        )
+        # Checkmark
+        draw.line([(22, 30), (30, 38), (42, 22)],
+                  fill='#00e676', width=3)
+        return img
 
-    def create_menu(self):
-        menu_items = [
-            pystray.MenuItem("Exam Shield", self.show_admin_panel, default=True),
-            pystray.MenuItem("Show Admin Panel", self.show_admin_panel),
+    # ── Menu ─────────────────────────────────────────────────────
+    def _menu(self):
+        items = [
+            pystray.MenuItem("🛡️  Exam Shield", self._show_panel,
+                             default=True),
+            pystray.MenuItem("Open Admin Panel", self._show_panel),
             pystray.Menu.SEPARATOR,
         ]
         if self.security_manager.is_exam_mode:
-            menu_items.append(pystray.MenuItem("🔒 Stop Exam Mode", self.stop_exam_mode_with_password))
+            items.append(
+                pystray.MenuItem("🔒 Stop Lockdown", self._stop_lockdown))
         else:
-            menu_items.append(pystray.MenuItem("🔓 Start Exam Mode", self.start_exam_mode))
-        menu_items.extend([
+            items.append(
+                pystray.MenuItem("🔓 Start Lockdown", self._start_lockdown))
+        items += [
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Exit (Admin Only)", self.exit_application)
-        ])
-        return pystray.Menu(*menu_items)
+            pystray.MenuItem("Exit (Admin)", self._exit),
+        ]
+        return pystray.Menu(*items)
 
-    def show_admin_panel(self, icon=None, item=None):
+    # ── Actions ──────────────────────────────────────────────────
+    def _show_panel(self, icon=None, item=None):
         self.admin_panel.show()
 
-    def start_exam_mode(self, icon=None, item=None):
+    def _start_lockdown(self, icon=None, item=None):
         self.security_manager.start_exam_mode()
+        self._refresh_menu()
+
+    def _stop_lockdown(self, icon=None, item=None):
+        if self._verify_password("Enter admin password to stop lockdown:"):
+            self.security_manager.stop_exam_mode()
+            self._refresh_menu()
+            self._msg("Lockdown stopped", info=True)
+        else:
+            self._msg("Invalid password!", info=False)
+
+    def _exit(self, icon=None, item=None):
+        if self._verify_password("Enter admin password to exit Exam Shield:"):
+            self.log.info("APP_EXIT", "Exit via tray")
+            self.stop()
+            sys.exit(0)
+        else:
+            self._msg("Invalid password!", info=False)
+
+    # ── Helpers ──────────────────────────────────────────────────
+    def _verify_password(self, prompt):
+        pw = simpledialog.askstring(
+            "🔐 Authentication", prompt,
+            show="*", parent=self.parent)
+        if not pw:
+            return False
+        h = hashlib.sha256(pw.encode()).hexdigest()
+        return self.db_manager.verify_admin(self.admin_user, h)
+
+    def _msg(self, text, info=True):
+        fn = messagebox.showinfo if info else messagebox.showerror
+        fn("Exam Shield", text, parent=self.parent)
+
+    def _refresh_menu(self):
         if self.icon:
-            self.icon.menu = self.create_menu()
+            self.icon.menu = self._menu()
 
-    def stop_exam_mode_with_password(self, icon=None, item=None):
-        root = tk.Tk()
-        root.withdraw()
-        password = simpledialog.askstring("Password Required",
-                                          "Enter admin password to stop exam mode:",
-                                          show="*", parent=root)
-        if password:
-            import hashlib
-            from database_manager import DatabaseManager
-            db_manager = DatabaseManager()
-            password_hash = hashlib.sha256(password.encode()).hexdigest()
-            if db_manager.verify_admin("admin", password_hash):
-                self.security_manager.stop_exam_mode()
-                if self.icon:
-                    self.icon.menu = self.create_menu()
-                messagebox.showinfo("Success", "Exam mode stopped", parent=root)
-            else:
-                messagebox.showerror("Error", "Invalid password", parent=root)
-        root.destroy()
-
-    def exit_application(self, icon=None, item=None):
-        root = tk.Tk()
-        root.withdraw()
-        password = simpledialog.askstring("Password Required",
-                                          "Enter admin password to exit Exam Shield:",
-                                          show="*", parent=root)
-        if password:
-            import hashlib
-            from database_manager import DatabaseManager
-            db_manager = DatabaseManager()
-            password_hash = hashlib.sha256(password.encode()).hexdigest()
-            if db_manager.verify_admin("admin", password_hash):
-                self.stop()
-                import sys
-                sys.exit(0)
-            else:
-                messagebox.showerror("Error", "Invalid password", parent=root)
-        root.destroy()
-
+    # ── Lifecycle ────────────────────────────────────────────────
     def run(self):
         self.running = True
-        image = self.create_icon_image()
-        menu = self.create_menu()
-        self.icon = pystray.Icon("ExamShield", image, "Exam Shield", menu)
+        self.icon = pystray.Icon(
+            "ExamShield", self._create_icon(),
+            "Exam Shield", self._menu())
         self.icon.run()
 
     def stop(self):

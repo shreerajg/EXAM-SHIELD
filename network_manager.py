@@ -1,250 +1,151 @@
 """
-Network Manager for Exam Shield - ENHANCED VERSION
-FIXED: Proper restoration of internet access after lockdown
+ExamShield v1.0 — Network Manager
+Blocks internet by modifying hosts file + DNS, with robust restoration.
 """
-
 import os
-import subprocess
-import platform
 import shutil
-import socket
+import platform
+import subprocess
 import threading
-import time     
-from datetime import datetime
+import time
 from config import Config
+from logger import ExamShieldLogger
+
 
 class NetworkManager:
     def __init__(self, db_manager):
         self.db_manager = db_manager
+        self.log = ExamShieldLogger(db_manager)
         self.is_blocked = False
-        self.hosts_backup = None
-        self.original_hosts_content = None  # FIXED: Store original content
-        self.hosts_path = self._get_hosts_path()
-        self.blocking_thread = None
-        self.dns_servers_backup = None
-        
-    def _get_hosts_path(self):
-        """Get the system hosts file path"""
-        system = platform.system().lower()
-        if system == "windows":
-            return r"C:\Windows\System32\drivers\etc\hosts"
-        elif system in ["linux", "darwin"]:
-            return "/etc/hosts"
-        else:
-            return None
+        self.hosts_path = self._hosts_path()
+        self._original_content = None
+        self._backup_path = None
+        self._guard_thread = None
+        self._stop_event = threading.Event()
 
+    @staticmethod
+    def _hosts_path():
+        s = platform.system().lower()
+        if s == "windows":
+            return r"C:\Windows\System32\drivers\etc\hosts"
+        return "/etc/hosts"
+
+    # ── Public API ───────────────────────────────────────────────
     def start_blocking(self):
-        """ENHANCED: Start internet blocking with proper backup"""
         if self.is_blocked or not self.hosts_path:
             return
-
         try:
-            # FIXED: Create proper backup of original hosts file
-            self._backup_original_hosts()
-            
-            # Block via hosts file
-            self._modify_hosts_file()
-            
-            # Additional DNS blocking
-            self._block_dns()
-            
+            self._backup_hosts()
+            self._write_blocked_hosts()
+            self._set_dns_loopback()
             self.is_blocked = True
-            self.blocking_thread = threading.Thread(target=self._continuous_blocking, daemon=True)
-            self.blocking_thread.start()
-            
-            self.db_manager.log_activity("INTERNET_BLOCKING_START", "Aggressive internet blocking activated")
-            print("🚫 Enhanced internet blocking activated")
-            
+            self._stop_event.clear()
+            self._guard_thread = threading.Thread(
+                target=self._guard_loop, daemon=True
+            )
+            self._guard_thread.start()
+            self.log.info("NET_BLOCK_START", "Internet blocking activated")
         except Exception as e:
-            print(f"❌ Error starting internet blocking: {e}")
+            self.log.error("NET_BLOCK", f"Start failed: {e}")
 
     def stop_blocking(self):
-        """FIXED: Properly restore internet access"""
         if not self.is_blocked:
             return
-            
+        self.is_blocked = False
+        self._stop_event.set()
         try:
-            self.is_blocked = False
-            
-            # FIXED: Restore original hosts file content
-            self._restore_original_hosts()
-            
-            # Restore DNS settings
+            self._restore_hosts()
             self._restore_dns()
-            
-            # Flush DNS cache
-            self._flush_dns_cache()
-            
-            self.db_manager.log_activity("INTERNET_BLOCKING_STOP", "Internet access fully restored")
-            print("✅ Internet access fully restored")
-            
+            self._flush_dns()
+            self.log.info("NET_BLOCK_STOP", "Internet access restored")
         except Exception as e:
-            print(f"❌ Error stopping internet blocking: {e}")
+            self.log.error("NET_BLOCK", f"Stop failed: {e}")
 
-    def _backup_original_hosts(self):
-        """FIXED: Create proper backup of original hosts file"""
+    # ── Hosts file ops ───────────────────────────────────────────
+    _MARKER_START = "# ===== EXAM SHIELD BLOCK START ====="
+    _MARKER_END   = "# ===== EXAM SHIELD BLOCK END ====="
+
+    def _backup_hosts(self):
         try:
             if os.path.exists(self.hosts_path):
-                with open(self.hosts_path, 'r') as f:
-                    self.original_hosts_content = f.read()
-                
-                # Also create physical backup file
-                backup_path = self.hosts_path + ".exam_shield_backup"
-                shutil.copy2(self.hosts_path, backup_path)
-                self.hosts_backup = backup_path
-                
-                print("✅ Original hosts file backed up successfully")
+                with open(self.hosts_path, 'r', encoding='utf-8', errors='replace') as f:
+                    self._original_content = f.read()
+                self._backup_path = self.hosts_path + ".examshield.bak"
+                shutil.copy2(self.hosts_path, self._backup_path)
             else:
-                self.original_hosts_content = ""
-                print("⚠️ Hosts file doesn't exist, will create new one")
-                
+                self._original_content = ""
         except Exception as e:
-            print(f"❌ Error backing up hosts file: {e}")
-            self.original_hosts_content = ""
+            self.log.error("NET_BACKUP", f"Hosts backup failed: {e}")
+            self._original_content = ""
 
-    def _restore_original_hosts(self):
-        """FIXED: Restore original hosts file content"""
+    def _write_blocked_hosts(self):
+        sites = Config.BLOCKED_WEBSITES
+        lines = [self._MARKER_START]
+        for site in sites:
+            lines.append(f"127.0.0.1 {site}")
+            lines.append(f"::1 {site}")
+        lines.append(self._MARKER_END)
+        block = "\n".join(lines)
         try:
-            if self.original_hosts_content is not None:
-                # Write back original content
-                with open(self.hosts_path, 'w') as f:
-                    f.write(self.original_hosts_content)
-                print("✅ Original hosts file content restored")
-            elif self.hosts_backup and os.path.exists(self.hosts_backup):
-                # Fallback to backup file
-                shutil.copy2(self.hosts_backup, self.hosts_path)
-                print("✅ Hosts file restored from backup")
-            
-            # Clean up backup file
-            if self.hosts_backup and os.path.exists(self.hosts_backup):
-                os.remove(self.hosts_backup)
-                self.hosts_backup = None
-                
+            content = (self._original_content or "") + "\n\n" + block + "\n"
+            with open(self.hosts_path, 'w', encoding='utf-8') as f:
+                f.write(content)
         except Exception as e:
-            print(f"❌ Error restoring hosts file: {e}")
+            self.log.error("NET_HOSTS", f"Write failed: {e}")
 
-    def _modify_hosts_file(self):
-        """Enhanced hosts file modification"""
+    def _restore_hosts(self):
         try:
-            blocked_entries = []
-            
-            # FIXED: Add comprehensive blocking including Google and YouTube
-            comprehensive_blocked_sites = [
-                'google.com', 'www.google.com', 'google.co.in', 'www.google.co.in',
-                'youtube.com', 'www.youtube.com', 'youtu.be', 'm.youtube.com',
-                'facebook.com', 'www.facebook.com', 'fb.com', 'm.facebook.com',
-                'twitter.com', 'www.twitter.com', 'x.com', 'www.x.com',
-                'instagram.com', 'www.instagram.com',
-                'tiktok.com', 'www.tiktok.com',
-                'reddit.com', 'www.reddit.com',
-                'discord.com', 'www.discord.com',
-                'whatsapp.com', 'web.whatsapp.com',
-                'telegram.org', 'web.telegram.org'
-            ]
-            
-            # Add blocked entries
-            for site in comprehensive_blocked_sites:
-                blocked_entries.append(f"127.0.0.1 {site}")
-                blocked_entries.append(f"::1 {site}")
-            
-            # Read current hosts content or use original
-            current_content = self.original_hosts_content if self.original_hosts_content else ""
-            
-            # Add exam shield blocking section
-            new_content = current_content + "\n\n# EXAM SHIELD BLOCKING - DO NOT EDIT\n"
-            new_content += "\n".join(blocked_entries)
-            new_content += "\n# END EXAM SHIELD BLOCKING\n"
-            
-            # Write new content
-            with open(self.hosts_path, 'w') as f:
-                f.write(new_content)
-                
-            print(f"✅ Blocked {len(comprehensive_blocked_sites)} websites in hosts file")
-            
+            if self._original_content is not None:
+                with open(self.hosts_path, 'w', encoding='utf-8') as f:
+                    f.write(self._original_content)
+            elif self._backup_path and os.path.exists(self._backup_path):
+                shutil.copy2(self._backup_path, self.hosts_path)
+            # Cleanup backup
+            if self._backup_path and os.path.exists(self._backup_path):
+                os.remove(self._backup_path)
+                self._backup_path = None
         except Exception as e:
-            print(f"❌ Error modifying hosts file: {e}")
+            self.log.error("NET_RESTORE", f"Hosts restore failed: {e}")
 
-    def _block_dns(self):
-        """Additional DNS blocking measures"""
-        try:
-            # Change DNS to non-functional servers
-            if platform.system().lower() == "windows":
-                subprocess.run([
-                    'netsh', 'interface', 'ip', 'set', 'dns', 
-                    'name="Local Area Connection"', 'source=static', 'addr=127.0.0.1'
-                ], capture_output=True, text=True)
-                
-                subprocess.run([
-                    'netsh', 'interface', 'ip', 'set', 'dns', 
-                    'name="Wi-Fi"', 'source=static', 'addr=127.0.0.1'
-                ], capture_output=True, text=True)
-                
-            print("✅ DNS blocking applied")
-        except Exception as e:
-            print(f"⚠️ DNS blocking failed: {e}")
+    # ── DNS ──────────────────────────────────────────────────────
+    def _set_dns_loopback(self):
+        if platform.system().lower() != "windows":
+            return
+        for iface in ("Wi-Fi", "Ethernet", "Local Area Connection"):
+            subprocess.run(
+                ['netsh', 'interface', 'ip', 'set', 'dns',
+                 f'name="{iface}"', 'source=static', 'addr=127.0.0.1'],
+                capture_output=True, text=True
+            )
 
     def _restore_dns(self):
-        """Restore original DNS settings"""
-        try:
-            if platform.system().lower() == "windows":
-                # Restore to automatic DNS
-                subprocess.run([
-                    'netsh', 'interface', 'ip', 'set', 'dns', 
-                    'name="Local Area Connection"', 'source=dhcp'
-                ], capture_output=True, text=True)
-                
-                subprocess.run([
-                    'netsh', 'interface', 'ip', 'set', 'dns', 
-                    'name="Wi-Fi"', 'source=dhcp'
-                ], capture_output=True, text=True)
-                
-            print("✅ DNS settings restored")
-        except Exception as e:
-            print(f"⚠️ DNS restoration failed: {e}")
+        if platform.system().lower() != "windows":
+            return
+        for iface in ("Wi-Fi", "Ethernet", "Local Area Connection"):
+            subprocess.run(
+                ['netsh', 'interface', 'ip', 'set', 'dns',
+                 f'name="{iface}"', 'source=dhcp'],
+                capture_output=True, text=True
+            )
 
-    def _flush_dns_cache(self):
-        """Flush DNS cache to ensure changes take effect"""
-        try:
-            if platform.system().lower() == "windows":
-                subprocess.run(['ipconfig', '/flushdns'], capture_output=True, text=True)
-            elif platform.system().lower() == "linux":
-                subprocess.run(['sudo', 'systemctl', 'restart', 'systemd-resolved'], capture_output=True, text=True)
-            elif platform.system().lower() == "darwin":
-                subprocess.run(['sudo', 'dscacheutil', '-flushcache'], capture_output=True, text=True)
-                
-            print("✅ DNS cache flushed")
-        except Exception as e:
-            print(f"⚠️ DNS cache flush failed: {e}")
+    def _flush_dns(self):
+        if platform.system().lower() == "windows":
+            subprocess.run(['ipconfig', '/flushdns'], capture_output=True, text=True)
 
-    def _continuous_blocking(self):
-        """Continuous monitoring and blocking"""
-        while self.is_blocked:
+    # ── Guard Thread ─────────────────────────────────────────────
+    def _guard_loop(self):
+        """Re-apply hosts blocking if someone tampers with the file."""
+        while not self._stop_event.is_set():
             try:
-                # Re-apply hosts file blocking if modified
-                self._verify_hosts_blocking()
-                time.sleep(5)
-            except Exception as e:
-                print(f"Continuous blocking error: {e}")
-                time.sleep(10)
+                with open(self.hosts_path, 'r', encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                if self._MARKER_START not in content:
+                    self._write_blocked_hosts()
+                    self.log.warning("NET_GUARD", "Re-applied tampered hosts block")
+            except Exception:
+                pass
+            self._stop_event.wait(5)
 
-    def _verify_hosts_blocking(self):
-        """Verify hosts file still contains blocking entries"""
-        try:
-            with open(self.hosts_path, 'r') as f:
-                content = f.read()
-            
-            if "EXAM SHIELD BLOCKING" not in content:
-                # Re-apply blocking if removed
-                self._modify_hosts_file()
-                print("🔄 Re-applied hosts file blocking")
-                
-        except Exception as e:
-            print(f"Error verifying hosts blocking: {e}")
-
-    def is_internet_blocked(self):
-        """Check if internet is currently blocked"""
-        return self.is_blocked
-
+    # ── Helpers ──────────────────────────────────────────────────
     def get_blocked_websites(self):
-        """Get list of currently blocked websites"""
         return Config.BLOCKED_WEBSITES

@@ -1,956 +1,1130 @@
 """
-Admin Panel for Exam Shield - ENHANCED WITH SELECTIVE CONTROLS
+ExamShield v1.0 — Admin Panel
+Sidebar-based dark control centre.
 """
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, simpledialog
-import threading
-import json
-from datetime import datetime
-import keyboard
-from pynput import mouse
+from tkinter import ttk, messagebox, scrolledtext, simpledialog, filedialog
+import threading, time, json, datetime, hashlib, keyboard
+from pynput import mouse as pynput_mouse
+from config import Config
+from logger import ExamShieldLogger
+
+C = Config.COLORS
+
+# ── Reusable styled widgets ────────────────────────────────────────
+
+def styled_btn(parent, text, cmd, bg=None, fg=None, width=None, pady=8):
+    bg = bg or C['surface_alt']
+    fg = fg or C['text']
+    kw = dict(text=text, command=cmd, bg=bg, fg=fg,
+              font=('Segoe UI', 10, 'bold'), relief=tk.FLAT,
+              cursor='hand2', pady=pady, bd=0,
+              activeforeground='white', activebackground=C['primary_dark'])
+    if width:
+        kw['width'] = width
+    btn = tk.Button(parent, **kw)
+    h = _darken(bg)
+    btn.bind('<Enter>', lambda e: btn.config(bg=h))
+    btn.bind('<Leave>', lambda e: btn.config(bg=bg))
+    return btn
+
+def _darken(hex_c):
+    try:
+        h = hex_c.lstrip('#')
+        r,g,b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
+        return f'#{int(r*.75):02x}{int(g*.75):02x}{int(b*.75):02x}'
+    except Exception:
+        return hex_c
+
+def dark_entry(parent, var, show=None):
+    e = tk.Entry(parent, textvariable=var, show=show or '',
+                 font=('Segoe UI', 11), bg=C['input_bg'], fg=C['text'],
+                 relief=tk.FLAT, insertbackground=C['primary'],
+                 highlightthickness=2, highlightcolor=C['primary'],
+                 highlightbackground=C['border'])
+    return e
+
+def section_header(parent, text):
+    f = tk.Frame(parent, bg=C['bg'])
+    f.pack(fill=tk.X, padx=16, pady=(14, 4))
+    tk.Label(f, text=text, font=('Segoe UI', 12, 'bold'),
+             bg=C['bg'], fg=C['primary']).pack(anchor=tk.W)
+    tk.Frame(f, bg=C['border'], height=1).pack(fill=tk.X, pady=(2, 0))
+
 
 class AdminPanel:
-    def __init__(self, db_manager, security_manager, parent_window):
-        self.db_manager = db_manager
-        self.security_manager = security_manager
-        self.parent_window = parent_window
-        
-        # NEW: Set admin panel reference in security manager
-        self.security_manager.set_admin_panel(self)
-        
-        # NEW: Key/Mouse detection variables
-        self.detecting_key = False
-        self.detecting_mouse = False
-        self.detected_key = None
-        self.mouse_listener = None
-        
+    def __init__(self, db_manager, security_manager, parent_window,
+                 admin_user='admin'):
+        self.db = db_manager
+        self.sec = security_manager
+        self.parent = parent_window
+        self.admin_user = admin_user
+        self.log = ExamShieldLogger(db_manager)
+        self.sec.set_admin_panel(self)
+
+        self._detecting_key = False
+        self._detecting_mouse = False
+        self._key_hook = None
+        self._mouse_listener = None
+        self._detected_key = None
+        self._detected_mouse = None
+        self._toast_queue = []
+
+        # Build window
         self.window = tk.Toplevel()
-        self.window.title("Exam Shield - Admin Panel v1.1 ENHANCED")
-        self.window.geometry("950x750")
-        self.window.resizable(True, True)
-        
-        self.setup_window()
-        self.setup_ui()
-        self.start_auto_refresh()
+        self.window.title("Exam Shield — Control Centre")
+        self.window.geometry("1100x720")
+        self.window.minsize(960, 660)
+        self.window.configure(bg=C['bg'])
+        self._apply_dark_theme()
+        self._load_persisted_settings()
+        self._build_ui()
+        self._center()
+        self._start_auto_refresh()
 
-    def setup_window(self):
-        self.window.update_idletasks()
-        x = (self.window.winfo_screenwidth() // 2) - (475)
-        y = (self.window.winfo_screenheight() // 2) - (375)
-        self.window.geometry(f"950x750+{x}+{y}")
-        self.window.protocol("WM_DELETE_WINDOW", self.on_close)
+    # ── Dark theme ───────────────────────────────────────────────
+    def _apply_dark_theme(self):
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure('.', background=C['bg'], foreground=C['text'],
+                        fieldbackground=C['input_bg'], borderwidth=0)
+        style.configure('TFrame', background=C['bg'])
+        style.configure('TLabel', background=C['bg'], foreground=C['text'])
+        style.configure('TLabelframe', background=C['bg'], foreground=C['primary'])
+        style.configure('TLabelframe.Label', background=C['bg'],
+                        foreground=C['primary'], font=('Segoe UI', 10, 'bold'))
+        style.configure('TCheckbutton', background=C['bg'], foreground=C['text'])
+        style.configure('Treeview', background=C['surface'], foreground=C['text'],
+                        fieldbackground=C['surface'], rowheight=26, font=('Consolas', 9))
+        style.configure('Treeview.Heading', background=C['surface_alt'],
+                        foreground=C['primary'], font=('Segoe UI', 10, 'bold'))
+        style.map('Treeview', background=[('selected', C['primary_dark'])])
+        style.configure('TScrollbar', background=C['surface'], troughcolor=C['bg'],
+                        arrowcolor=C['text_dim'])
 
-    def setup_ui(self):
-        self.notebook = ttk.Notebook(self.window)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        self.create_control_tab()
-        self.create_monitoring_tab()
-        self.create_settings_tab()
-        self.create_logs_tab()
+    def _load_persisted_settings(self):
+        data = self.db.load_persisted_lists()
+        if data['blocked_keys']:
+            self.sec.blocked_keys = data['blocked_keys']
+        if data['blocked_mouse']:
+            self.sec.mouse_manager.blocked_buttons = data['blocked_mouse']
+        if data['blocked_websites']:
+            Config.BLOCKED_WEBSITES = data['blocked_websites']
 
-    def create_control_tab(self):
-        control_frame = ttk.Frame(self.notebook)
-        self.notebook.add(control_frame, text="📋 Exam Control")
-        
-        # Status frame
-        status_frame = ttk.LabelFrame(control_frame, text="System Status", padding="10")
-        status_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
-        
-        self.status_label = ttk.Label(status_frame, text="🔓 Exam Mode: INACTIVE", font=("Arial", 14, "bold"))
-        self.status_label.pack(anchor=tk.W)
-        
-        self.system_info_label = ttk.Label(status_frame, text="System Info Loading...")
-        self.system_info_label.pack(anchor=tk.W, pady=(5, 0))
-        
-        # Security status indicators
-        self.security_status_frame = ttk.Frame(status_frame)
-        self.security_status_frame.pack(anchor=tk.W, pady=(5, 0), fill=tk.X)
-        
-        ttk.Label(self.security_status_frame, text="Security Modules:", font=("Arial", 10, "bold")).pack(anchor=tk.W)
-        
-        indicators_frame = ttk.Frame(self.security_status_frame)
-        indicators_frame.pack(anchor=tk.W, pady=(2, 0))
-        
-        self.keyboard_status = ttk.Label(indicators_frame, text="⚫ Keyboard", foreground="gray")
-        self.keyboard_status.pack(side=tk.LEFT, padx=(0, 15))
-        
-        self.mouse_status = ttk.Label(indicators_frame, text="⚫ Mouse", foreground="gray")
-        self.mouse_status.pack(side=tk.LEFT, padx=(0, 15))
-        
-        self.network_status = ttk.Label(indicators_frame, text="⚫ Network", foreground="gray")
-        self.network_status.pack(side=tk.LEFT, padx=(0, 15))
-        
-        self.window_status = ttk.Label(indicators_frame, text="⚫ Windows", foreground="gray")
-        self.window_status.pack(side=tk.LEFT, padx=(0, 15))
-        
-        # Control buttons
-        control_buttons_frame = ttk.LabelFrame(control_frame, text="Exam Controls", padding="10")
-        control_buttons_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        button_frame = ttk.Frame(control_buttons_frame)
-        button_frame.pack(fill=tk.X)
-        
-        # NEW: Changed to selective lockdown
-        self.start_btn = ttk.Button(button_frame, text="🔒 START SELECTIVE LOCKDOWN", 
-                                   command=self.show_selective_lockdown_dialog, style="Accent.TButton")
-        self.start_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
-        self.stop_btn = ttk.Button(button_frame, text="🔓 END LOCKDOWN MODE",
-                                  command=self.stop_exam_mode, state=tk.DISABLED)
-        self.stop_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
-        self.emergency_btn = ttk.Button(button_frame, text="🚨 EMERGENCY STOP",
-                                       command=self.emergency_stop)
-        self.emergency_btn.pack(side=tk.RIGHT)
-        
-        # Individual feature controls (same as before)
-        self.create_individual_controls(control_frame)
-        
-        # Threat detection
-        threat_frame = ttk.LabelFrame(control_frame, text="Threat Detection", padding="10")
-        threat_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        self.threat_label = ttk.Label(threat_frame, text="No threats detected", foreground="green")
-        self.threat_label.pack(anchor=tk.W)
+    # ── Main UI (Sidebar + Content) ──────────────────────────────
+    def _build_ui(self):
+        # Top header bar
+        hdr = tk.Frame(self.window, bg=C['surface'], height=52)
+        hdr.pack(fill=tk.X)
+        hdr.pack_propagate(False)
+        tk.Label(hdr, text="🛡️  EXAM SHIELD — CONTROL CENTRE",
+                 font=('Segoe UI', 14, 'bold'), bg=C['surface'],
+                 fg=C['primary']).pack(side=tk.LEFT, padx=18)
+        self._status_badge = tk.Label(hdr, text="⬤  STANDBY",
+                                       font=('Consolas', 11, 'bold'),
+                                       bg=C['surface'], fg=C['text_dim'])
+        self._status_badge.pack(side=tk.RIGHT, padx=18)
+        tk.Label(hdr, text=f"User: {self.admin_user}",
+                 font=('Segoe UI', 9), bg=C['surface'],
+                 fg=C['text_dim']).pack(side=tk.RIGHT, padx=4)
 
-    def create_individual_controls(self, parent):
-        """Create individual security controls"""
-        features_frame = ttk.LabelFrame(parent, text="Individual Security Controls", padding="10")
-        features_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        feature_btn_frame1 = ttk.Frame(features_frame)
-        feature_btn_frame1.pack(fill=tk.X, pady=(0, 5))
-        
-        ttk.Button(feature_btn_frame1, text="🖱️ Mouse Blocker",
-                  command=self.show_mouse_controls).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(feature_btn_frame1, text="🌐 Internet Blocker",
-                  command=self.show_network_controls).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(feature_btn_frame1, text="🪟 Window Guardian",
-                  command=self.show_window_controls).pack(side=tk.LEFT, padx=(0, 5))
-        
-        feature_btn_frame2 = ttk.Frame(features_frame)
-        feature_btn_frame2.pack(fill=tk.X)
-        
-        ttk.Button(feature_btn_frame2, text="📊 Live Monitor",
-                  command=lambda: self.notebook.select(1)).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(feature_btn_frame2, text="⚙️ Settings",
-                  command=lambda: self.notebook.select(2)).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(feature_btn_frame2, text="🔄 Refresh Status",
-                  command=self.refresh_status).pack(side=tk.LEFT, padx=(0, 5))
+        # Separator
+        tk.Frame(self.window, bg=C['primary'], height=2).pack(fill=tk.X)
 
-    # NEW: Selective Lockdown Dialog
-    def show_selective_lockdown_dialog(self):
-        """Show dialog for selective lockdown options"""
-        dialog = tk.Toplevel(self.window)
-        dialog.title("🔒 Selective Lockdown Configuration")
-        dialog.geometry("500x600")
-        dialog.transient(self.window)
-        dialog.grab_set()
-        
-        # Center dialog
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - 250
-        y = (dialog.winfo_screenheight() // 2) - 300
-        dialog.geometry(f"500x600+{x}+{y}")
-        
-        # Title
-        title_label = tk.Label(dialog, text="Select Security Modules to Activate",
-                              font=("Arial", 16, "bold"), pady=20)
-        title_label.pack()
-        
-        # Options frame
-        options_frame = tk.Frame(dialog)
-        options_frame.pack(fill=tk.BOTH, expand=True, padx=40, pady=20)
-        
-        # Checkboxes for each security module
-        self.selective_vars = {}
-        
-        modules = [
-            ("keyboard", "🔤 Keyboard Shortcuts Blocking", "Block Alt+Tab, Ctrl+Alt+Del, etc."),
-            ("mouse", "🖱️ Mouse Button Restrictions", "Block middle, back, forward buttons"),
-            ("internet", "🌐 Internet Access Blocking", "Complete internet disconnection"),
-            ("windows", "🪟 Window Protection", "Prevent closing/minimizing windows"),
-            ("processes", "🔍 Process Monitoring", "Auto-terminate suspicious processes")
+        # Body = sidebar + content
+        body = tk.Frame(self.window, bg=C['bg'])
+        body.pack(fill=tk.BOTH, expand=True)
+
+        # Sidebar
+        sidebar = tk.Frame(body, bg=C['sidebar'], width=180)
+        sidebar.pack(side=tk.LEFT, fill=tk.Y)
+        sidebar.pack_propagate(False)
+
+        # Content area
+        self._content = tk.Frame(body, bg=C['bg'])
+        self._content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Nav items
+        self._nav_frames = {}
+        self._active_page = tk.StringVar(value='dashboard')
+        nav_items = [
+            ('dashboard', '⚡', 'Dashboard'),
+            ('monitor',   '📊', 'Live Monitor'),
+            ('settings',  '⚙️',  'Settings'),
+            ('logs',      '📋', 'Logs'),
         ]
-        
-        for key, title, description in modules:
-            frame = tk.Frame(options_frame, relief=tk.RAISED, bd=1, padx=10, pady=10)
-            frame.pack(fill=tk.X, pady=5)
-            
-            var = tk.BooleanVar(value=True)  # Default all to True
-            self.selective_vars[key] = var
-            
-            check = tk.Checkbutton(frame, text=title, variable=var, font=("Arial", 12, "bold"))
-            check.pack(anchor=tk.W)
-            
-            desc_label = tk.Label(frame, text=description, font=("Arial", 10), fg="gray")
-            desc_label.pack(anchor=tk.W, padx=20)
-        
-        # Buttons
-        button_frame = tk.Frame(dialog)
-        button_frame.pack(fill=tk.X, padx=40, pady=20)
-        
-        start_btn = tk.Button(button_frame, text="🚀 START SELECTED LOCKDOWN",
-                             command=lambda: self.start_selective_lockdown(dialog),
-                             bg='#4CAF50', fg='white', font=("Arial", 12, "bold"),
-                             relief=tk.FLAT, pady=10)
-        start_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        
-        cancel_btn = tk.Button(button_frame, text="❌ CANCEL",
-                              command=dialog.destroy,
-                              bg='#F44336', fg='white', font=("Arial", 12, "bold"),
-                              relief=tk.FLAT, pady=10)
-        cancel_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(10, 0))
+        tk.Label(sidebar, text="NAVIGATION", font=('Segoe UI', 8, 'bold'),
+                 bg=C['sidebar'], fg=C['text_dim']).pack(
+            anchor=tk.W, padx=14, pady=(20, 6))
 
-    def start_selective_lockdown(self, dialog):
-        """Start lockdown with selected options"""
-        selected_options = {key: var.get() for key, var in self.selective_vars.items()}
-        
-        # Check if at least one option is selected
-        if not any(selected_options.values()):
-            messagebox.showwarning("No Selection", "Please select at least one security module!")
-            return
-        
-        # Confirm selection
-        selected_names = [key.title() for key, selected in selected_options.items() if selected]
-        result = messagebox.askyesno("Confirm Selective Lockdown",
-                                    f"Start lockdown with these modules?\n\n" + 
-                                    "\n".join(f"✓ {name}" for name in selected_names))
-        
-        if result:
-            dialog.destroy()
-            try:
-                self.security_manager.start_exam_mode(selected_options)
-                self.start_btn.config(state=tk.DISABLED)
-                self.stop_btn.config(state=tk.NORMAL)
-                self.refresh_status()
-                
-                messagebox.showinfo("🔒 SELECTIVE LOCKDOWN ACTIVE",
-                                   f"Lockdown active with:\n" + 
-                                   "\n".join(f"✓ {name}" for name in selected_names))
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to start lockdown: {str(e)}")
+        self._nav_btns = {}
+        for key, icon, label in nav_items:
+            btn_frame = tk.Frame(sidebar, bg=C['sidebar'])
+            btn_frame.pack(fill=tk.X, pady=1)
+            indicator = tk.Frame(btn_frame, bg=C['sidebar'], width=4)
+            indicator.pack(side=tk.LEFT, fill=tk.Y)
+            btn = tk.Label(btn_frame, text=f"  {icon}  {label}",
+                           font=('Segoe UI', 10), bg=C['sidebar'],
+                           fg=C['text_dim'], cursor='hand2',
+                           anchor=tk.W, pady=12)
+            btn.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            btn.bind('<Button-1>', lambda e, k=key: self._nav_to(k))
+            btn.bind('<Enter>', lambda e, b=btn, i=indicator:
+                     (b.config(bg=C['sidebar_hover'], fg=C['text']),
+                      i.config(bg=C['border_bright'])))
+            btn_frame.bind('<Enter>', lambda e, b=btn, i=indicator:
+                           (b.config(bg=C['sidebar_hover'], fg=C['text']),
+                            i.config(bg=C['border_bright'])))
+            self._nav_btns[key] = {'btn': btn, 'ind': indicator,
+                                    'frame': btn_frame}
 
-    # Continue with monitoring, settings tabs (same as before)
-    def create_monitoring_tab(self):
-        monitor_frame = ttk.Frame(self.notebook)
-        self.notebook.add(monitor_frame, text="📊 Live Monitor")
-        
-        activity_frame = ttk.LabelFrame(monitor_frame, text="Real-time Security Events", padding="10")
-        activity_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        columns = ("Time", "Severity", "Action", "Details", "Status")
-        self.activity_tree = ttk.Treeview(activity_frame, columns=columns, show="headings", height=20)
-        
-        for col in columns:
-            self.activity_tree.heading(col, text=col)
-        
-        self.activity_tree.column("Time", width=120)
-        self.activity_tree.column("Severity", width=80)
-        self.activity_tree.column("Action", width=180)
-        self.activity_tree.column("Details", width=300)
-        self.activity_tree.column("Status", width=100)
-        
-        activity_scrollbar = ttk.Scrollbar(activity_frame, orient=tk.VERTICAL, command=self.activity_tree.yview)
-        self.activity_tree.configure(yscrollcommand=activity_scrollbar.set)
-        
-        self.activity_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        activity_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        # Build all page frames (hidden by default)
+        self._pages = {}
+        self._pages['dashboard'] = self._build_dashboard()
+        self._pages['monitor']   = self._build_monitor()
+        self._pages['settings']  = self._build_settings()
+        self._pages['logs']      = self._build_logs()
 
-    # NEW: Enhanced settings with key/mouse detection
-    def create_settings_tab(self):
-        settings_frame = ttk.Frame(self.notebook)
-        self.notebook.add(settings_frame, text="⚙️ Settings")
-        
-        canvas = tk.Canvas(settings_frame)
-        scrollbar = ttk.Scrollbar(settings_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-        
-        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Enhanced keyboard settings with key detection
-        self.create_keyboard_settings(scrollable_frame)
-        self.create_mouse_settings(scrollable_frame)
-        self.create_network_settings(scrollable_frame)
-        self.create_advanced_settings(scrollable_frame)
-        
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        # Show initial page
+        self._nav_to('dashboard')
 
-    def create_keyboard_settings(self, parent):
-        """Enhanced keyboard settings with key detection"""
-        security_frame = ttk.LabelFrame(parent, text="🔤 Keyboard Security", padding="10")
-        security_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        ttk.Label(security_frame, text="Blocked Key Combinations:").pack(anchor=tk.W)
-        
-        key_frame = ttk.Frame(security_frame)
-        key_frame.pack(fill=tk.X, pady=(5, 10))
-        
-        self.blocked_keys_listbox = tk.Listbox(key_frame, height=6)
-        self.blocked_keys_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-        
-        key_btn_frame = ttk.Frame(key_frame)
-        key_btn_frame.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # NEW: Enhanced add key with detection
-        ttk.Button(key_btn_frame, text="🎯 Detect Key", 
-                  command=self.detect_key_combination).pack(fill=tk.X, pady=(0, 5))
-        ttk.Button(key_btn_frame, text="⌨️ Type Key", 
-                  command=self.add_blocked_key).pack(fill=tk.X, pady=(0, 5))
-        ttk.Button(key_btn_frame, text="Remove Key", 
-                  command=self.remove_blocked_key).pack(fill=tk.X, pady=(0, 5))
-        ttk.Button(key_btn_frame, text="Reset Default", 
-                  command=self.reset_default_keys).pack(fill=tk.X)
+    def _nav_to(self, key):
+        # Hide all pages
+        for pg in self._pages.values():
+            pg.pack_forget()
+        # Reset all nav items
+        for k, d in self._nav_btns.items():
+            d['btn'].config(bg=C['sidebar'], fg=C['text_dim'])
+            d['ind'].config(bg=C['sidebar'])
+            d['frame'].config(bg=C['sidebar'])
+        # Show selected
+        self._pages[key].pack(fill=tk.BOTH, expand=True)
+        self._nav_btns[key]['btn'].config(bg=C['sidebar_hover'],
+                                           fg=C['primary'])
+        self._nav_btns[key]['ind'].config(bg=C['primary'])
+        self._active_page.set(key)
 
-    def create_mouse_settings(self, parent):
-        """Enhanced mouse settings with button detection"""
-        mouse_frame = ttk.LabelFrame(parent, text="🖱️ Mouse Security", padding="10")
-        mouse_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        ttk.Label(mouse_frame, text="Blocked Mouse Buttons:").pack(anchor=tk.W)
-        
-        mouse_list_frame = ttk.Frame(mouse_frame)
-        mouse_list_frame.pack(fill=tk.X, pady=(5, 10))
-        
-        self.blocked_mouse_listbox = tk.Listbox(mouse_list_frame, height=4)
-        self.blocked_mouse_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-        
-        mouse_btn_frame = ttk.Frame(mouse_list_frame)
-        mouse_btn_frame.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # NEW: Enhanced add button with detection
-        ttk.Button(mouse_btn_frame, text="🎯 Detect Click", 
-                  command=self.detect_mouse_button).pack(fill=tk.X, pady=(0, 5))
-        ttk.Button(mouse_btn_frame, text="⌨️ Type Button", 
-                  command=self.add_blocked_mouse).pack(fill=tk.X, pady=(0, 5))
-        ttk.Button(mouse_btn_frame, text="Remove Button", 
-                  command=self.remove_blocked_mouse).pack(fill=tk.X)
+    # ── Page: Dashboard ──────────────────────────────────────────
+    def _build_dashboard(self):
+        pg = tk.Frame(self._content, bg=C['bg'])
 
-    def create_network_settings(self, parent):
-        """Network settings"""
-        network_frame = ttk.LabelFrame(parent, text="🌐 Network Security", padding="10")
-        network_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        self.block_internet_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(network_frame, text="Enable comprehensive internet blocking",
-                       variable=self.block_internet_var).pack(anchor=tk.W)
-        
-        ttk.Label(network_frame, text="Blocked Websites:").pack(anchor=tk.W, pady=(10, 0))
-        
-        website_frame = ttk.Frame(network_frame)
-        website_frame.pack(fill=tk.X, pady=(5, 10))
-        
-        self.blocked_websites_listbox = tk.Listbox(website_frame, height=4)
-        self.blocked_websites_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-        
-        website_btn_frame = ttk.Frame(website_frame)
-        website_btn_frame.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        ttk.Button(website_btn_frame, text="Add Website", 
-                  command=self.add_blocked_website).pack(fill=tk.X, pady=(0, 5))
-        ttk.Button(website_btn_frame, text="Remove Website", 
-                  command=self.remove_blocked_website).pack(fill=tk.X)
+        # System stats row
+        section_header(pg, "System Status")
+        stats_row = tk.Frame(pg, bg=C['bg'])
+        stats_row.pack(fill=tk.X, padx=16, pady=(0, 8))
 
-    def create_advanced_settings(self, parent):
-        """Advanced settings"""
-        advanced_frame = ttk.LabelFrame(parent, text="🔧 Advanced Settings", padding="10")
-        advanced_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        
-        self.auto_start_var = tk.BooleanVar()
-        ttk.Checkbutton(advanced_frame, text="Auto-start lockdown mode on login",
-                       variable=self.auto_start_var).pack(anchor=tk.W)
-        
-        self.window_protection_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(advanced_frame, text="Enable aggressive window protection",
-                       variable=self.window_protection_var).pack(anchor=tk.W)
-        
-        self.process_monitoring_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(advanced_frame, text="Enable unauthorized process termination",
-                       variable=self.process_monitoring_var).pack(anchor=tk.W)
-        
-        ttk.Button(advanced_frame, text="💾 Save All Settings",
-                  command=self.save_settings).pack(pady=(15, 0))
+        self._cpu_bar = self._stat_card(stats_row, "CPU", C['info'])
+        self._ram_bar = self._stat_card(stats_row, "RAM", C['accent'])
+        self._procs_card = self._stat_card(stats_row, "PROCESSES", C['warning'],
+                                            is_bar=False)
+        self._mode_card = self._stat_card(stats_row, "MODE", C['success'],
+                                           is_bar=False)
 
-    # NEW: Key Detection Methods
-    def detect_key_combination(self):
-        """Detect key combination by listening for keypress"""
-        if self.detecting_key:
-            return
-            
-        detect_dialog = tk.Toplevel(self.window)
-        detect_dialog.title("🎯 Key Detection")
-        detect_dialog.geometry("400x200")
-        detect_dialog.transient(self.window)
-        detect_dialog.grab_set()
-        
-        # Center dialog
-        detect_dialog.update_idletasks()
-        x = (detect_dialog.winfo_screenwidth() // 2) - 200
-        y = (detect_dialog.winfo_screenheight() // 2) - 100
-        detect_dialog.geometry(f"400x200+{x}+{y}")
-        
-        tk.Label(detect_dialog, text="Press the key combination you want to block",
-                font=("Arial", 12, "bold")).pack(pady=20)
-        
-        status_label = tk.Label(detect_dialog, text="Waiting for key combination...",
-                               font=("Arial", 10), fg="blue")
-        status_label.pack(pady=10)
-        
-        detected_label = tk.Label(detect_dialog, text="", 
-                                 font=("Arial", 10, "bold"), fg="green")
-        detected_label.pack(pady=5)
-        
-        button_frame = tk.Frame(detect_dialog)
-        button_frame.pack(pady=20)
-        
-        add_btn = tk.Button(button_frame, text="Add Key", state=tk.DISABLED,
-                           command=lambda: self.add_detected_key(detect_dialog))
-        add_btn.pack(side=tk.LEFT, padx=5)
-        
-        cancel_btn = tk.Button(button_frame, text="Cancel", 
-                              command=lambda: self.cancel_key_detection(detect_dialog))
-        cancel_btn.pack(side=tk.LEFT, padx=5)
-        
-        self.detecting_key = True
-        self.detected_key = None
-        
-        def on_key_event(event):
-            if not self.detecting_key:
-                return
-                
-            # Build key combination string
-            modifiers = []
-            if event.name in ['ctrl', 'alt', 'shift', 'cmd']:
-                return  # Don't process modifier keys alone
-                
-            # Check for modifiers
-            if keyboard.is_pressed('ctrl'):
-                modifiers.append('ctrl')
-            if keyboard.is_pressed('alt'):
-                modifiers.append('alt')
-            if keyboard.is_pressed('shift'):
-                modifiers.append('shift')
-            if keyboard.is_pressed('cmd'):
-                modifiers.append('cmd')
-                
-            key_combo = '+'.join(modifiers + [event.name])
-            
-            self.detected_key = key_combo
-            detected_label.config(text=f"Detected: {key_combo}")
-            add_btn.config(state=tk.NORMAL)
-            status_label.config(text="Key combination detected!")
-        
-        keyboard.on_press(on_key_event)
+        # Lockdown control
+        section_header(pg, "Lockdown Control")
+        ctrl = tk.Frame(pg, bg=C['card'])
+        ctrl.pack(fill=tk.X, padx=16, pady=(0, 8))
 
-    def add_detected_key(self, dialog):
-        """Add the detected key combination"""
-        if self.detected_key and self.detected_key not in self.security_manager.blocked_keys:
-            self.security_manager.add_blocked_key(self.detected_key)
-            self.load_blocked_keys()
-            messagebox.showinfo("Success", f"Added key combination: {self.detected_key}")
-        
-        self.cancel_key_detection(dialog)
+        self._mode_label = tk.Label(ctrl, text="🔓  LOCKDOWN: INACTIVE",
+                                     font=('Segoe UI', 15, 'bold'),
+                                     bg=C['card'], fg=C['success'])
+        self._mode_label.pack(anchor=tk.W, padx=20, pady=(14, 4))
 
-    def cancel_key_detection(self, dialog):
-        """Cancel key detection"""
-        self.detecting_key = False
-        keyboard.unhook_all()
-        # Re-setup existing hooks if exam mode is active
-        if self.security_manager.is_exam_mode:
-            self.security_manager.setup_keyboard_hooks()
-        dialog.destroy()
+        # Module indicators
+        ind_row = tk.Frame(ctrl, bg=C['card'])
+        ind_row.pack(fill=tk.X, padx=20, pady=(4, 12))
+        self._ind = {}
+        for key, icon, label in [('keyboard', '⌨', 'Keyboard'),
+                                   ('mouse',    '🖱', 'Mouse'),
+                                   ('network',  '🌐', 'Network'),
+                                   ('windows',  '🪟', 'Windows')]:
+            card = tk.Frame(ind_row, bg=C['surface'], padx=12, pady=8)
+            card.pack(side=tk.LEFT, padx=(0, 8))
+            lbl = tk.Label(card, text=f"⬤  {icon} {label}",
+                           font=('Segoe UI', 9), bg=C['surface'],
+                           fg=C['text_dim'])
+            lbl.pack()
+            self._ind[key] = lbl
 
-    # NEW: Mouse Detection Methods
-    def detect_mouse_button(self):
-        """Detect mouse button by listening for click"""
-        if self.detecting_mouse:
-            return
-            
-        detect_dialog = tk.Toplevel(self.window)
-        detect_dialog.title("🎯 Mouse Detection")
-        detect_dialog.geometry("400x200")
-        detect_dialog.transient(self.window)
-        detect_dialog.grab_set()
-        
-        # Center dialog
-        detect_dialog.update_idletasks()
-        x = (detect_dialog.winfo_screenwidth() // 2) - 200
-        y = (detect_dialog.winfo_screenheight() // 2) - 100
-        detect_dialog.geometry(f"400x200+{x}+{y}")
-        
-        tk.Label(detect_dialog, text="Click the mouse button you want to block",
-                font=("Arial", 12, "bold")).pack(pady=20)
-        
-        status_label = tk.Label(detect_dialog, text="Waiting for mouse click...",
-                               font=("Arial", 10), fg="blue")
-        status_label.pack(pady=10)
-        
-        detected_label = tk.Label(detect_dialog, text="", 
-                                 font=("Arial", 10, "bold"), fg="green")
-        detected_label.pack(pady=5)
-        
-        button_frame = tk.Frame(detect_dialog)
-        button_frame.pack(pady=20)
-        
-        add_btn = tk.Button(button_frame, text="Add Button", state=tk.DISABLED,
-                           command=lambda: self.add_detected_mouse(detect_dialog))
-        add_btn.pack(side=tk.LEFT, padx=5)
-        
-        cancel_btn = tk.Button(button_frame, text="Cancel", 
-                              command=lambda: self.cancel_mouse_detection(detect_dialog))
-        cancel_btn.pack(side=tk.LEFT, padx=5)
-        
-        self.detecting_mouse = True
-        self.detected_mouse_button = None
-        
-        def on_click(x, y, button, pressed):
-            if not self.detecting_mouse or not pressed:
-                return False
-                
-            button_name = str(button).replace('Button.', '')
-            self.detected_mouse_button = button_name
-            
-            detected_label.config(text=f"Detected: {button_name}")
-            add_btn.config(state=tk.NORMAL)
-            status_label.config(text="Mouse button detected!")
-            
-            return False  # Stop listening
-        
-        self.mouse_listener = mouse.Listener(on_click=on_click)
-        self.mouse_listener.start()
+        # Buttons row
+        btn_row = tk.Frame(ctrl, bg=C['card'])
+        btn_row.pack(fill=tk.X, padx=20, pady=(0, 16))
 
-    def add_detected_mouse(self, dialog):
-        """Add the detected mouse button"""
-        if (self.detected_mouse_button and 
-            self.detected_mouse_button not in self.security_manager.mouse_manager.blocked_buttons):
-            self.security_manager.mouse_manager.add_blocked_button(self.detected_mouse_button)
-            self.load_blocked_mouse_buttons()
-            messagebox.showinfo("Success", f"Added mouse button: {self.detected_mouse_button}")
-        
-        self.cancel_mouse_detection(dialog)
+        self._start_btn = styled_btn(btn_row, "🔒  START LOCKDOWN",
+                                      self._show_lockdown_dialog,
+                                      bg=C['success'], fg='#0a0a0a')
+        self._start_btn.pack(side=tk.LEFT, padx=(0, 8))
 
-    def cancel_mouse_detection(self, dialog):
-        """Cancel mouse detection"""
-        self.detecting_mouse = False
-        if self.mouse_listener:
-            self.mouse_listener.stop()
-        dialog.destroy()
+        self._stop_btn = styled_btn(btn_row, "🔓  END LOCKDOWN",
+                                     self._stop_exam,
+                                     bg=C['danger'], fg='white')
+        self._stop_btn.pack(side=tk.LEFT, padx=(0, 8))
+        self._stop_btn.config(state=tk.DISABLED)
 
-    # Continue with rest of existing methods (same implementation)
-    def create_logs_tab(self):
-        logs_frame = ttk.Frame(self.notebook)
-        self.notebook.add(logs_frame, text="📋 Security Logs")
-        
-        controls_frame = ttk.Frame(logs_frame)
-        controls_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
-        
-        ttk.Button(controls_frame, text="🔄 Refresh", command=self.refresh_logs).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(controls_frame, text="🗑️ Clear All", command=self.clear_logs).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(controls_frame, text="💾 Export", command=self.export_logs).pack(side=tk.LEFT, padx=(0, 10))
-        
-        ttk.Label(controls_frame, text="Filter:").pack(side=tk.LEFT, padx=(20, 5))
-        self.log_filter_var = tk.StringVar()
-        filter_combo = ttk.Combobox(controls_frame, textvariable=self.log_filter_var,
-                                   values=["All", "Blocked Only", "Security Events", "System Events"])
-        filter_combo.set("All")
-        filter_combo.pack(side=tk.LEFT, padx=(0, 10))
-        filter_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh_logs())
-        
-        logs_display_frame = ttk.LabelFrame(logs_frame, text="Security Activity History", padding="10")
-        logs_display_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(5, 10))
-        
-        self.logs_text = scrolledtext.ScrolledText(logs_display_frame, wrap=tk.WORD, height=25)
-        self.logs_text.pack(fill=tk.BOTH, expand=True)
+        styled_btn(btn_row, "🚨  EMERGENCY STOP",
+                   self._emergency_stop,
+                   bg=C['warning'], fg='#0a0a0a').pack(side=tk.LEFT)
 
-    # Rest of the methods remain the same...
-    # [Include all the other existing methods like stop_exam_mode, refresh_status, etc.]
-    
-    def stop_exam_mode(self):
-        password = simpledialog.askstring("🔐 SECURITY VERIFICATION",
-                                        "Enter admin password to DISABLE lockdown:", show="*")
-        if password:
-            import hashlib
-            password_hash = hashlib.sha256(password.encode()).hexdigest()
-            if self.db_manager.verify_admin("admin", password_hash):
-                self.security_manager.stop_exam_mode()
-                self.start_btn.config(state=tk.NORMAL)
-                self.stop_btn.config(state=tk.DISABLED)
-                self.refresh_status()
-                messagebox.showinfo("🔓 LOCKDOWN DISABLED", "All security restrictions have been removed.")
-            else:
-                messagebox.showerror("❌ ACCESS DENIED", "Invalid admin password!")
+        styled_btn(btn_row, "🔄 Refresh",
+                   self._refresh_status, bg=C['surface_alt']).pack(side=tk.RIGHT)
 
-    def emergency_stop(self):
-        result1 = messagebox.askyesno("🚨 EMERGENCY STOP",
-                                     "This is an EMERGENCY STOP procedure.\n\nAre you sure you want to proceed?")
-        if not result1:
-            return
-            
-        result2 = messagebox.askyesno("⚠️ FINAL WARNING",
-                                     "This will IMMEDIATELY disable ALL security.\n\nCONFIRM EMERGENCY STOP?")
-        if not result2:
-            return
-            
-        password = simpledialog.askstring("🔐 EMERGENCY AUTH",
-                                         "Enter admin password for EMERGENCY STOP:", show="*")
-        if password:
-            import hashlib
-            password_hash = hashlib.sha256(password.encode()).hexdigest()
-            if self.db_manager.verify_admin("admin", password_hash):
-                try:
-                    self.security_manager.stop_exam_mode()
-                    self.start_btn.config(state=tk.NORMAL)
-                    self.stop_btn.config(state=tk.DISABLED)
-                    self.refresh_status()
-                    messagebox.showwarning("🚨 EMERGENCY STOP EXECUTED",
-                                          "Emergency stop completed.\nAll security systems disabled.")
-                except Exception as e:
-                    messagebox.showerror("Error", f"Emergency stop failed: {str(e)}")
-            else:
-                messagebox.showerror("❌ ACCESS DENIED", "Invalid admin password!")
+        # Threat detection
+        section_header(pg, "Threat Detection")
+        tf = tk.Frame(pg, bg=C['card'], padx=16, pady=12)
+        tf.pack(fill=tk.X, padx=16, pady=(0, 8))
+        self._threat_label = tk.Label(tf, text="🛡️  No threats detected",
+                                       font=('Segoe UI', 10),
+                                       bg=C['card'], fg=C['success'])
+        self._threat_label.pack(anchor=tk.W)
 
-    def refresh_status(self):
-        # Update main exam mode status
-        if self.security_manager.is_exam_mode:
-            self.status_label.config(text="🔒 LOCKDOWN MODE: ACTIVE", foreground="red")
+        # Quick controls
+        section_header(pg, "Quick Module Controls")
+        qrow = tk.Frame(pg, bg=C['bg'])
+        qrow.pack(fill=tk.X, padx=16, pady=(0, 8))
+
+        for label, cmd in [
+            ("🖱  Mouse",          self._show_mouse_ctrl),
+            ("🌐  Internet",       self._show_network_ctrl),
+            ("🪟  Windows",        self._show_window_ctrl),
+            ("🔑  Password",       self._change_password),
+        ]:
+            styled_btn(qrow, label, cmd, bg=C['surface']).pack(
+                side=tk.LEFT, padx=(0, 6), pady=4)
+
+        return pg
+
+    def _stat_card(self, parent, label, color, is_bar=True):
+        f = tk.Frame(parent, bg=C['surface_alt'], padx=14, pady=10)
+        f.pack(side=tk.LEFT, padx=(0, 8), pady=4)
+        tk.Label(f, text=label, font=('Segoe UI', 8, 'bold'),
+                 bg=C['surface_alt'], fg=C['text_dim']).pack(anchor=tk.W)
+        if is_bar:
+            val_lbl = tk.Label(f, text="0%", font=('Segoe UI', 16, 'bold'),
+                                bg=C['surface_alt'], fg=color)
+            val_lbl.pack(anchor=tk.W)
+            canvas = tk.Canvas(f, bg=C['bg'], height=6, width=120,
+                                highlightthickness=0)
+            canvas.pack(anchor=tk.W, pady=(4, 0))
+            bar = canvas.create_rectangle(0, 0, 0, 6, fill=color, outline='')
+            return {'label': val_lbl, 'canvas': canvas, 'bar': bar,
+                    'color': color}
         else:
-            self.status_label.config(text="🔓 LOCKDOWN MODE: INACTIVE", foreground="green")
-        
-        # Update system info
-        system_info = self.security_manager.get_system_info()
-        info_text = f"CPU: {system_info.get('cpu_percent', 0):.1f}% | " \
-                   f"RAM: {system_info.get('memory_percent', 0):.1f}% | " \
-                   f"Processes: {system_info.get('active_processes', 0)}"
-        self.system_info_label.config(text=info_text)
-        
-        # Update individual security module indicators
-        if system_info.get('hooks_active', False):
-            self.keyboard_status.config(text="✅ Keyboard", foreground="green")
-        else:
-            self.keyboard_status.config(text="⚫ Keyboard", foreground="gray")
-            
-        if system_info.get('mouse_blocking', False):
-            self.mouse_status.config(text="✅ Mouse", foreground="green")
-        else:
-            self.mouse_status.config(text="⚫ Mouse", foreground="gray")
-            
-        if system_info.get('internet_blocked', False):
-            self.network_status.config(text="✅ Network", foreground="green")
-        else:
-            self.network_status.config(text="⚫ Network", foreground="gray")
-            
-        if system_info.get('window_protection', False):
-            self.window_status.config(text="✅ Windows", foreground="green")
-        else:
-            self.window_status.config(text="⚫ Windows", foreground="gray")
-        
-        # Update threat detection
-        if self.security_manager.is_exam_mode:
-            active_threats = sum([
-                not system_info.get('hooks_active', False),
-                not system_info.get('mouse_blocking', False),
-                not system_info.get('internet_blocked', False),
-                not system_info.get('window_protection', False)
-            ])
-            
-            if active_threats == 0:
-                self.threat_label.config(text="🛡️ All security systems operational", foreground="green")
-            else:
-                self.threat_label.config(text=f"⚠️ {active_threats} security modules inactive", foreground="orange")
-        else:
-            self.threat_label.config(text="ℹ️ Security monitoring inactive", foreground="blue")
+            val_lbl = tk.Label(f, text="–",
+                                font=('Segoe UI', 16, 'bold'),
+                                bg=C['surface_alt'], fg=color)
+            val_lbl.pack(anchor=tk.W)
+            return {'label': val_lbl}
 
-    # Individual control dialogs (simplified versions)
-    def show_mouse_controls(self):
-        mouse_window = tk.Toplevel(self.window)
-        mouse_window.title("🖱️ Mouse Security Controls")
-        mouse_window.geometry("500x400")
-        mouse_window.transient(self.window)
-        
-        ttk.Label(mouse_window, text="Mouse Button Blocking System", font=("Arial", 14, "bold")).pack(pady=15)
-        
-        status = "🟢 ACTIVE" if self.security_manager.mouse_manager.is_active else "🔴 INACTIVE"
-        ttk.Label(mouse_window, text=f"Status: {status}", font=("Arial", 12)).pack(pady=5)
-        
-        control_frame = ttk.LabelFrame(mouse_window, text="Controls", padding="20")
-        control_frame.pack(pady=20, padx=20, fill=tk.BOTH)
-        
-        if not self.security_manager.mouse_manager.is_active:
-            ttk.Button(control_frame, text="🚀 Activate Mouse Blocking",
-                      command=lambda: [self.toggle_mouse_blocking(True), mouse_window.destroy()]).pack(pady=10)
-        else:
-            ttk.Button(control_frame, text="🛑 Deactivate Mouse Blocking",
-                      command=lambda: [self.toggle_mouse_blocking(False), mouse_window.destroy()]).pack(pady=10)
-        
-        info_frame = ttk.LabelFrame(mouse_window, text="Information", padding="15")
-        info_frame.pack(pady=10, padx=20, fill=tk.BOTH, expand=True)
-        
-        blocked_buttons = ", ".join(self.security_manager.mouse_manager.blocked_buttons)
-        ttk.Label(info_frame, text=f"Blocked Buttons: {blocked_buttons}").pack(anchor=tk.W)
+    def _update_bar(self, bar_info, pct):
+        w = 120
+        bar_info['label'].config(text=f"{pct:.0f}%")
+        bar_info['canvas'].coords(bar_info['bar'], 0, 0, int(w * pct / 100), 6)
 
-    def show_network_controls(self):
-        network_window = tk.Toplevel(self.window)
-        network_window.title("🌐 Network Security Controls")
-        network_window.geometry("500x400")
-        network_window.transient(self.window)
-        
-        ttk.Label(network_window, text="Internet Blocking System", font=("Arial", 14, "bold")).pack(pady=15)
-        
-        status = "🟢 BLOCKED" if self.security_manager.network_manager.is_blocked else "🔴 ALLOWED"
-        ttk.Label(network_window, text=f"Internet Access: {status}", font=("Arial", 12)).pack(pady=5)
-        
-        control_frame = ttk.LabelFrame(network_window, text="Controls", padding="20")
-        control_frame.pack(pady=20, padx=20, fill=tk.BOTH)
-        
-        if not self.security_manager.network_manager.is_blocked:
-            ttk.Button(control_frame, text="🚀 Activate Internet Blocking",
-                      command=lambda: [self.toggle_internet_blocking(True), network_window.destroy()]).pack(pady=10)
-        else:
-            ttk.Button(control_frame, text="🛑 Restore Internet Access",
-                      command=lambda: [self.toggle_internet_blocking(False), network_window.destroy()]).pack(pady=10)
+    # ── Page: Live Monitor ───────────────────────────────────────
+    def _build_monitor(self):
+        pg = tk.Frame(self._content, bg=C['bg'])
+        section_header(pg, "Real-time Security Events")
+        af = tk.Frame(pg, bg=C['bg'])
+        af.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
 
-    def show_window_controls(self):
-        window_control = tk.Toplevel(self.window)
-        window_control.title("🪟 Window Guardian Controls")
-        window_control.geometry("500x400")
-        window_control.transient(self.window)
-        
-        ttk.Label(window_control, text="Window Protection System", font=("Arial", 14, "bold")).pack(pady=15)
-        
-        status = "🟢 ACTIVE" if self.security_manager.window_manager.is_active else "🔴 INACTIVE"
-        ttk.Label(window_control, text=f"Status: {status}", font=("Arial", 12)).pack(pady=5)
+        cols = ('Time', 'Severity', 'Action', 'Details', 'Status')
+        self._tree = ttk.Treeview(af, columns=cols, show='headings', height=22)
+        for c, w in zip(cols, [90, 90, 180, 360, 100]):
+            self._tree.heading(c, text=c)
+            self._tree.column(c, width=w, minwidth=60)
+        self._tree.tag_configure('high', foreground=C['danger'])
+        self._tree.tag_configure('med',  foreground=C['warning'])
+        self._tree.tag_configure('low',  foreground=C['success'])
 
-    def toggle_mouse_blocking(self, enable):
-        if enable:
-            self.security_manager.mouse_manager.start_blocking()
-            messagebox.showinfo("✅ Activated", "Mouse blocking is now active!")
-        else:
-            self.security_manager.mouse_manager.stop_blocking()
-            messagebox.showinfo("✅ Deactivated", "Mouse blocking has been disabled.")
-        self.refresh_status()
+        vsb = ttk.Scrollbar(af, orient=tk.VERTICAL, command=self._tree.yview)
+        self._tree.configure(yscrollcommand=vsb.set)
+        self._tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        return pg
 
-    def toggle_internet_blocking(self, enable):
-        if enable:
-            messagebox.showinfo("⏳ Processing", "Activating comprehensive internet blocking...\nThis may take a moment.")
-            self.security_manager.network_manager.start_blocking()
-            messagebox.showinfo("✅ Activated", "Internet blocking is now active!")
-        else:
-            self.security_manager.network_manager.stop_blocking()
-            messagebox.showinfo("✅ Restored", "Internet access has been restored.")
-        self.refresh_status()
+    # ── Page: Settings ───────────────────────────────────────────
+    def _build_settings(self):
+        pg = tk.Frame(self._content, bg=C['bg'])
+        canvas = tk.Canvas(pg, bg=C['bg'], highlightthickness=0)
+        vsb = ttk.Scrollbar(pg, orient='vertical', command=canvas.yview)
+        inner = tk.Frame(canvas, bg=C['bg'])
+        inner.bind('<Configure>',
+                   lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0, 0), window=inner, anchor='nw')
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.pack(side='left', fill='both', expand=True)
+        vsb.pack(side='right', fill='y')
 
-    def toggle_window_protection(self, enable):
-        if enable:
-            self.security_manager.window_manager.start_window_protection()
-            messagebox.showinfo("✅ Activated", "Window protection is now active!")
-        else:
-            self.security_manager.window_manager.stop_window_protection()
-            messagebox.showinfo("✅ Deactivated", "Window protection has been disabled.")
-        self.refresh_status()
+        self._build_keyboard_settings(inner)
+        self._build_mouse_settings(inner)
+        self._build_network_settings(inner)
+        self._build_advanced_settings(inner)
+        return pg
 
-    # Additional required methods...
-    def load_blocked_keys(self):
-        self.blocked_keys_listbox.delete(0, tk.END)
-        for key in self.security_manager.blocked_keys:
-            self.blocked_keys_listbox.insert(tk.END, key)
+    def _build_keyboard_settings(self, parent):
+        f = tk.LabelFrame(parent, text="⌨  Keyboard Blocking",
+                           bg=C['bg'], fg=C['primary'],
+                           font=('Segoe UI', 10, 'bold'), padx=10, pady=10)
+        f.pack(fill=tk.X, padx=16, pady=10)
+        row = tk.Frame(f, bg=C['bg'])
+        row.pack(fill=tk.X, pady=(0, 6))
+        self._keys_lb = tk.Listbox(row, height=6, bg=C['input_bg'],
+                                    fg=C['text'],
+                                    selectbackground=C['primary_dark'],
+                                    font=('Consolas', 10), relief=tk.FLAT,
+                                    highlightthickness=1,
+                                    highlightcolor=C['border'])
+        self._keys_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+        self._load_keys_list()
+        btns = tk.Frame(row, bg=C['bg'])
+        btns.pack(side=tk.RIGHT, fill=tk.Y)
+        for t, cmd in [('🎯 Detect', self._detect_key),
+                       ('⌨ Type',   self._add_key_manual),
+                       ('Remove',   self._remove_key),
+                       ('Reset',    self._reset_keys)]:
+            styled_btn(btns, t, cmd, bg=C['surface']).pack(
+                fill=tk.X, pady=2)
 
-    def add_blocked_key(self):
-        key_combo = simpledialog.askstring("Add Blocked Key", "Enter key combination (e.g., 'ctrl+c'):")
-        if key_combo:
-            self.security_manager.add_blocked_key(key_combo)
-            self.load_blocked_keys()
+    def _build_mouse_settings(self, parent):
+        f = tk.LabelFrame(parent, text="🖱  Mouse Blocking",
+                           bg=C['bg'], fg=C['primary'],
+                           font=('Segoe UI', 10, 'bold'), padx=10, pady=10)
+        f.pack(fill=tk.X, padx=16, pady=10)
+        row = tk.Frame(f, bg=C['bg'])
+        row.pack(fill=tk.X, pady=(0, 6))
+        self._mouse_lb = tk.Listbox(row, height=4, bg=C['input_bg'],
+                                     fg=C['text'],
+                                     selectbackground=C['primary_dark'],
+                                     font=('Consolas', 10), relief=tk.FLAT,
+                                     highlightthickness=1,
+                                     highlightcolor=C['border'])
+        self._mouse_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+        self._load_mouse_list()
+        btns = tk.Frame(row, bg=C['bg'])
+        btns.pack(side=tk.RIGHT, fill=tk.Y)
+        for t, cmd in [('🎯 Detect', self._detect_mouse),
+                       ('⌨ Type',   self._add_mouse_manual),
+                       ('Remove',   self._remove_mouse)]:
+            styled_btn(btns, t, cmd, bg=C['surface']).pack(fill=tk.X, pady=2)
 
-    def remove_blocked_key(self):
-        selection = self.blocked_keys_listbox.curselection()
-        if selection:
-            key_combo = self.blocked_keys_listbox.get(selection[0])
-            self.security_manager.remove_blocked_key(key_combo)
-            self.load_blocked_keys()
+    def _build_network_settings(self, parent):
+        f = tk.LabelFrame(parent, text="🌐  Network Blocking",
+                           bg=C['bg'], fg=C['primary'],
+                           font=('Segoe UI', 10, 'bold'), padx=10, pady=10)
+        f.pack(fill=tk.X, padx=16, pady=10)
+        self._net_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(f, text='Enable internet blocking',
+                       variable=self._net_var, bg=C['bg'],
+                       fg=C['text'], selectcolor=C['input_bg'],
+                       activebackground=C['bg']).pack(anchor=tk.W)
+        tk.Label(f, text='Blocked Websites:', bg=C['bg'],
+                 fg=C['text']).pack(anchor=tk.W, pady=(8, 0))
+        row = tk.Frame(f, bg=C['bg'])
+        row.pack(fill=tk.X, pady=(4, 6))
+        self._web_lb = tk.Listbox(row, height=5, bg=C['input_bg'],
+                                   fg=C['text'],
+                                   selectbackground=C['primary_dark'],
+                                   font=('Consolas', 10), relief=tk.FLAT,
+                                   highlightthickness=1,
+                                   highlightcolor=C['border'])
+        self._web_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+        self._load_website_list()
+        btns = tk.Frame(row, bg=C['bg'])
+        btns.pack(side=tk.RIGHT, fill=tk.Y)
+        for t, cmd in [('Add',    self._add_website),
+                       ('Remove', self._remove_website)]:
+            styled_btn(btns, t, cmd, bg=C['surface']).pack(fill=tk.X, pady=2)
 
-    def reset_default_keys(self):
-        from config import Config
-        self.security_manager.blocked_keys = Config.BLOCKED_KEYS.copy()
-        self.load_blocked_keys()
+    def _build_advanced_settings(self, parent):
+        f = tk.LabelFrame(parent, text="🔧  Advanced",
+                           bg=C['bg'], fg=C['primary'],
+                           font=('Segoe UI', 10, 'bold'), padx=10, pady=10)
+        f.pack(fill=tk.X, padx=16, pady=(0, 16))
+        self._autostart_var = tk.BooleanVar()
+        self._winprot_var   = tk.BooleanVar(value=True)
+        self._procmon_var   = tk.BooleanVar(value=True)
+        for text, var in [
+            ('Auto-start lockdown on login',        self._autostart_var),
+            ('Aggressive window protection',         self._winprot_var),
+            ('Auto-terminate suspicious processes',  self._procmon_var),
+        ]:
+            tk.Checkbutton(f, text=text, variable=var, bg=C['bg'],
+                           fg=C['text'], selectcolor=C['input_bg'],
+                           activebackground=C['bg']).pack(anchor=tk.W)
+        styled_btn(f, '💾  Save All Settings', self._save_settings,
+                   bg=C['primary'], fg='#0a0a0a').pack(pady=(12, 0))
 
-    def load_blocked_mouse_buttons(self):
-        self.blocked_mouse_listbox.delete(0, tk.END)
-        for button in self.security_manager.mouse_manager.blocked_buttons:
-            self.blocked_mouse_listbox.insert(tk.END, button)
+    # ── Page: Logs ───────────────────────────────────────────────
+    def _build_logs(self):
+        pg = tk.Frame(self._content, bg=C['bg'])
+        section_header(pg, "Activity Logs")
+        toolbar = tk.Frame(pg, bg=C['bg'])
+        toolbar.pack(fill=tk.X, padx=16, pady=4)
+        for t, cmd in [('🔄 Refresh', self._refresh_logs),
+                       ('🗑 Clear',   self._clear_logs),
+                       ('💾 Export',  self._export_logs)]:
+            styled_btn(toolbar, t, cmd, bg=C['surface']).pack(
+                side=tk.LEFT, padx=(0, 6))
+        tk.Label(toolbar, text='Filter:', bg=C['bg'],
+                 fg=C['text_dim']).pack(side=tk.LEFT, padx=(16, 4))
+        self._filter_var = tk.StringVar(value='All')
+        filt = ttk.Combobox(toolbar, textvariable=self._filter_var,
+                            values=['All', 'Blocked Only',
+                                    'Security Events', 'System Events'],
+                            state='readonly', width=16)
+        filt.pack(side=tk.LEFT)
+        filt.bind('<<ComboboxSelected>>', lambda e: self._refresh_logs())
 
-    def add_blocked_mouse(self):
-        button = simpledialog.askstring("Add Blocked Mouse Button", "Enter mouse button (middle, x1, x2, side):")
-        if button and button not in self.security_manager.mouse_manager.blocked_buttons:
-            self.security_manager.mouse_manager.add_blocked_button(button)
-            self.load_blocked_mouse_buttons()
+        self._stats_label = tk.Label(pg, text='', font=('Consolas', 9),
+                                      bg=C['bg'], fg=C['text_dim'])
+        self._stats_label.pack(anchor=tk.W, padx=16, pady=2)
 
-    def remove_blocked_mouse(self):
-        selection = self.blocked_mouse_listbox.curselection()
-        if selection:
-            button = self.blocked_mouse_listbox.get(selection[0])
-            self.security_manager.mouse_manager.remove_blocked_button(button)
-            self.load_blocked_mouse_buttons()
-
-    def load_blocked_websites(self):
-        self.blocked_websites_listbox.delete(0, tk.END)
-        from config import Config
-        for website in Config.BLOCKED_WEBSITES:
-            self.blocked_websites_listbox.insert(tk.END, website)
-
-    def add_blocked_website(self):
-        website = simpledialog.askstring("Add Blocked Website", "Enter website (e.g., example.com):")
-        if website:
-            from config import Config
-            if website not in Config.BLOCKED_WEBSITES:
-                Config.BLOCKED_WEBSITES.append(website)
-                self.load_blocked_websites()
-
-    def remove_blocked_website(self):
-        selection = self.blocked_websites_listbox.curselection()
-        if selection:
-            website = self.blocked_websites_listbox.get(selection[0])
-            from config import Config
-            if website in Config.BLOCKED_WEBSITES:
-                Config.BLOCKED_WEBSITES.remove(website)
-                self.load_blocked_websites()
-
-    def save_settings(self):
-        try:
-            self.db_manager.save_setting("auto_start_exam", str(self.auto_start_var.get()))
-            blocked_keys_json = json.dumps(self.security_manager.blocked_keys)
-            self.db_manager.save_setting("blocked_keys", blocked_keys_json)
-            blocked_mouse_json = json.dumps(self.security_manager.mouse_manager.blocked_buttons)
-            self.db_manager.save_setting("blocked_mouse_buttons", blocked_mouse_json)
-            self.db_manager.save_setting("block_internet", str(self.block_internet_var.get()))
-            self.db_manager.save_setting("window_protection", str(self.window_protection_var.get()))
-            self.db_manager.save_setting("process_monitoring", str(self.process_monitoring_var.get()))
-            messagebox.showinfo("✅ Success", "All settings saved successfully!")
-        except Exception as e:
-            messagebox.showerror("❌ Error", f"Failed to save settings: {str(e)}")
-
-    def refresh_logs(self):
-        logs = self.db_manager.get_activity_logs(100)
-        self.logs_text.delete(1.0, tk.END)
-        
-        filter_type = self.log_filter_var.get()
-        for log in logs:
-            action, details, timestamp, blocked = log
-            status = "BLOCKED" if blocked else "ALLOWED"
-            
-            if filter_type == "Blocked Only" and not blocked:
-                continue
-            elif filter_type == "Security Events" and not any(x in action for x in ["BLOCKED", "SECURITY", "SUSPICIOUS"]):
-                continue
-            elif filter_type == "System Events" and not any(x in action for x in ["SYSTEM", "EXAM_MODE"]):
-                continue
-            
-            log_line = f"[{timestamp}] {action}: {details or 'N/A'} - {status}\n"
-            self.logs_text.insert(tk.END, log_line)
-        
-        self.logs_text.see(tk.END)
-
-    def clear_logs(self):
-        result = messagebox.askyesno("⚠️ Confirm", "Clear all activity logs?\n\nThis action cannot be undone.")
-        if result:
-            try:
-                self.logs_text.delete(1.0, tk.END)
-                messagebox.showinfo("✅ Success", "Display logs cleared!")
-            except Exception as e:
-                messagebox.showerror("❌ Error", f"Failed to clear logs: {str(e)}")
-
-    def export_logs(self):
-        from tkinter import filedialog
-        filename = filedialog.asksaveasfilename(
-            defaultextension=".txt",
-            filetypes=[("Text files", "*.txt"), ("CSV files", "*.csv"), ("All files", "*.*")]
+        lf = tk.Frame(pg, bg=C['bg'])
+        lf.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
+        self._logs_text = scrolledtext.ScrolledText(
+            lf, wrap=tk.WORD, height=22, bg=C['surface'], fg=C['text'],
+            font=('Consolas', 9), relief=tk.FLAT,
+            insertbackground=C['primary'],
         )
-        
-        if filename:
-            try:
-                logs = self.db_manager.get_activity_logs(1000)
-                if filename.endswith('.csv'):
-                    with open(filename, 'w', newline='') as f:
-                        f.write("Timestamp,Action,Details,Status\n")
-                        for log in logs:
-                            action, details, timestamp, blocked = log
-                            status = "BLOCKED" if blocked else "ALLOWED"
-                            details_clean = details if details else "N/A"
-                            f.write(f'"{timestamp}","{action}","{details_clean}","{status}"\n')
-                else:
-                    with open(filename, 'w') as f:
-                        f.write("EXAM SHIELD SECURITY LOGS\n")
-                        f.write("=" * 50 + "\n")
-                        f.write(f"Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                        f.write(f"Total Entries: {len(logs)}\n")
-                        f.write("=" * 50 + "\n\n")
-                        
-                        for log in logs:
-                            action, details, timestamp, blocked = log
-                            status = "BLOCKED" if blocked else "ALLOWED"
-                            f.write(f"[{timestamp}] {status}: {action}\n")
-                            f.write(f"Details: {details or 'No additional details'}\n\n")
-                
-                messagebox.showinfo("✅ Success", f"Logs exported successfully to:\n{filename}")
-            except Exception as e:
-                messagebox.showerror("❌ Error", f"Export failed: {str(e)}")
+        self._logs_text.pack(fill=tk.BOTH, expand=True)
+        self._logs_text.tag_config('blocked', foreground=C['danger'])
+        self._logs_text.tag_config('ok',      foreground=C['success'])
+        self._logs_text.tag_config('ts',      foreground=C['text_dim'])
+        return pg
 
-    def start_auto_refresh(self):
-        def refresh_loop():
-            while True:
-                try:
-                    if self.window.winfo_exists():
-                        self.window.after(0, self.refresh_status)
-                        if hasattr(self, 'activity_tree'):
-                            self.window.after(0, self.update_activity_feed)
-                    threading.Event().wait(2)
-                except:
-                    break
-        
-        refresh_thread = threading.Thread(target=refresh_loop, daemon=True)
-        refresh_thread.start()
+    # ── Lockdown Dialog ──────────────────────────────────────────
+    def _show_lockdown_dialog(self):
+        dlg = tk.Toplevel(self.window)
+        dlg.title('🔒 Selective Lockdown')
+        dlg.geometry('500x580')
+        dlg.configure(bg=C['bg'])
+        dlg.transient(self.window)
+        dlg.grab_set()
+        self._center_dialog(dlg, 500, 580)
 
-    def update_activity_feed(self):
+        tk.Label(dlg, text='Select Security Modules',
+                 font=('Segoe UI', 16, 'bold'), bg=C['bg'],
+                 fg=C['primary']).pack(pady=(24, 16))
+
+        modules = [
+            ('keyboard',  '⌨', 'Keyboard Blocking',
+             'Block Alt+Tab, Ctrl+Alt+Del, etc.'),
+            ('mouse',     '🖱', 'Mouse Restrictions',
+             'Block middle, back, forward buttons'),
+            ('internet',  '🌐', 'Internet Blocking',
+             'Complete internet disconnection'),
+            ('windows',   '🪟', 'Window Protection',
+             'Prevent closing/minimising windows'),
+            ('processes', '🔍', 'Process Monitor',
+             'Auto-terminate suspicious processes'),
+        ]
+        sel_vars = {}
+        for key, icon, title, desc in modules:
+            card = tk.Frame(dlg, bg=C['card'])
+            card.pack(fill=tk.X, padx=32, pady=5)
+            v = tk.BooleanVar(value=True)
+            sel_vars[key] = v
+            top = tk.Frame(card, bg=C['card'])
+            top.pack(fill=tk.X, padx=14, pady=(10, 2))
+            tk.Checkbutton(top, text=f"  {icon}  {title}", variable=v,
+                           font=('Segoe UI', 12, 'bold'),
+                           bg=C['card'], fg=C['text'],
+                           selectcolor=C['input_bg'],
+                           activebackground=C['card'],
+                           activeforeground=C['primary']).pack(anchor=tk.W)
+            tk.Label(card, text=f"      {desc}",
+                     font=('Segoe UI', 9), bg=C['card'],
+                     fg=C['text_dim']).pack(anchor=tk.W, padx=14,
+                                            pady=(0, 10))
+
+        btn_f = tk.Frame(dlg, bg=C['bg'])
+        btn_f.pack(fill=tk.X, padx=32, pady=20)
+
+        def start():
+            opts = {k: v.get() for k, v in sel_vars.items()}
+            if not any(opts.values()):
+                messagebox.showwarning('Empty',
+                    'Select at least one module!', parent=dlg)
+                return
+            names = [k.title() for k, v in opts.items() if v]
+            if messagebox.askyesno('Confirm',
+                    'Start lockdown with:\n\n' +
+                    '\n'.join(f'  ✓ {n}' for n in names), parent=dlg):
+                dlg.destroy()
+                self.sec.start_exam_mode(opts)
+                self._start_btn.config(state=tk.DISABLED)
+                self._stop_btn.config(state=tk.NORMAL)
+                self._refresh_status()
+                self._toast("🔒 Lockdown ACTIVE", C['danger'])
+
+        styled_btn(btn_f, '🚀  START LOCKDOWN', start,
+                   bg=C['success'], fg='#0a0a0a'
+                   ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        styled_btn(btn_f, 'Cancel', dlg.destroy,
+                   bg=C['danger'], fg='white'
+                   ).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(6, 0))
+
+    # ── Exam controls ────────────────────────────────────────────
+    def _stop_exam(self):
+        pw = simpledialog.askstring('🔐 Verify', 'Enter admin password:',
+                                     show='*', parent=self.window)
+        if pw is None:
+            return
+        h = hashlib.sha256(pw.encode()).hexdigest()
+        if self.db.verify_admin(self.admin_user, h):
+            self.sec.stop_exam_mode()
+            self._start_btn.config(state=tk.NORMAL)
+            self._stop_btn.config(state=tk.DISABLED)
+            self._refresh_status()
+            self._toast("🔓 Lockdown disabled", C['success'])
+        else:
+            messagebox.showerror('Denied', 'Wrong password!',
+                                  parent=self.window)
+
+    def _emergency_stop(self):
+        if not messagebox.askyesno('🚨 Emergency',
+                'EMERGENCY STOP?\nThis disables ALL security.',
+                parent=self.window):
+            return
+        pw = simpledialog.askstring('🔐 Auth',
+                'Admin password for EMERGENCY STOP:',
+                show='*', parent=self.window)
+        if pw is None:
+            return
+        h = hashlib.sha256(pw.encode()).hexdigest()
+        if self.db.verify_admin(self.admin_user, h):
+            self.sec.stop_exam_mode()
+            self._start_btn.config(state=tk.NORMAL)
+            self._stop_btn.config(state=tk.DISABLED)
+            self._refresh_status()
+            self._toast("🚨 Emergency stop executed", C['warning'])
+        else:
+            messagebox.showerror('Denied', 'Wrong password!',
+                                  parent=self.window)
+
+    # ── Status Refresh ───────────────────────────────────────────
+    def _refresh_status(self):
+        info = self.sec.get_system_info()
+        if self.sec.is_exam_mode:
+            self._mode_label.config(text='🔒  LOCKDOWN: ACTIVE',
+                                     fg=C['danger'])
+            self._status_badge.config(text='⬤  LOCKED', fg=C['danger'])
+        else:
+            self._mode_label.config(text='🔓  LOCKDOWN: INACTIVE',
+                                     fg=C['success'])
+            self._status_badge.config(text='⬤  STANDBY', fg=C['text_dim'])
+
+        # CPU/RAM bars
+        if hasattr(self, '_cpu_bar') and isinstance(self._cpu_bar, dict) and 'bar' in self._cpu_bar:
+            self._update_bar(self._cpu_bar, info.get('cpu_percent', 0))
+            self._update_bar(self._ram_bar, info.get('memory_percent', 0))
+        if hasattr(self, '_procs_card'):
+            self._procs_card['label'].config(
+                text=str(info.get('active_processes', '–')))
+        if hasattr(self, '_mode_card'):
+            is_active = info.get('exam_mode', False)
+            self._mode_card['label'].config(
+                text='ACTIVE' if is_active else 'STANDBY',
+                fg=C['danger'] if is_active else C['success'])
+
+        # Indicators
+        map_ = [('keyboard', 'hooks_active'), ('mouse', 'mouse_blocking'),
+                ('network', 'internet_blocked'), ('windows', 'window_protection')]
+        for key, syskey in map_:
+            active = info.get(syskey, False)
+            lbl_text = self._ind[key].cget('text').split(' ', 1)[1]
+            self._ind[key].config(
+                text=f"🟢  {lbl_text}" if active else f"⬤  {lbl_text}",
+                fg=C['success'] if active else C['text_dim'])
+
+        # Threat
+        if self.sec.is_exam_mode:
+            sel = self.sec.selective_blocking
+            threats = sum([
+                sel.get('keyboard') and not info.get('hooks_active'),
+                sel.get('mouse') and not info.get('mouse_blocking'),
+                sel.get('internet') and not info.get('internet_blocked'),
+                sel.get('windows') and not info.get('window_protection'),
+            ])
+            if threats == 0:
+                self._threat_label.config(
+                    text='🛡️  All selected modules operational',
+                    fg=C['success'])
+            else:
+                self._threat_label.config(
+                    text=f'⚠️  {threats} module(s) not responding',
+                    fg=C['warning'])
+        else:
+            self._threat_label.config(text='🛡️  Monitoring inactive',
+                                       fg=C['text_dim'])
+
+    # ── Toast Notification ───────────────────────────────────────
+    def _toast(self, msg, color=None):
+        color = color or C['primary']
         try:
-            for item in self.activity_tree.get_children():
-                self.activity_tree.delete(item)
-            
-            logs = self.db_manager.get_activity_logs(20)
-            
-            for log in logs:
-                action, details, timestamp, blocked = log
-                status = "🚫 BLOCKED" if blocked else "✅ ALLOWED"
-                
-                if blocked or "SUSPICIOUS" in action or "TERMINATED" in action:
-                    severity = "🔴 HIGH"
-                elif "BLOCKED" in action or "SECURITY" in action:
-                    severity = "🟡 MED"
-                else:
-                    severity = "🟢 LOW"
-                
-                try:
-                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                    time_str = dt.strftime("%H:%M:%S")
-                except:
-                    time_str = timestamp
-                
-                self.activity_tree.insert("", 0, values=(time_str, severity, action, details or "No details", status))
-        except Exception as e:
+            t = tk.Toplevel(self.window)
+            t.overrideredirect(True)
+            t.attributes('-topmost', True)
+            t.configure(bg=color)
+            sw = t.winfo_screenwidth()
+            sh = t.winfo_screenheight()
+            w, h = 320, 48
+            t.geometry(f'{w}x{h}+{sw - w - 20}+{sh - h - 60}')
+            tk.Label(t, text=msg, font=('Segoe UI', 11, 'bold'),
+                     bg=color, fg='#0a0a0a', padx=16).pack(
+                expand=True, fill=tk.BOTH)
+            t.after(2800, t.destroy)
+        except Exception:
             pass
 
-    def on_close(self):
-        result = messagebox.askyesno("⚠️ Confirm Exit",
-                                    "Close Admin Panel?\n\nThe system will continue running in the background.\n"
-                                    "Access it again from the system tray.")
-        if result:
+    # ── Key Detection ─────────────────────────────────────────────
+    def _detect_key(self):
+        if self._detecting_key:
+            return
+        dlg = tk.Toplevel(self.window)
+        dlg.title('🎯 Detect Key Combo')
+        dlg.geometry('420x200')
+        dlg.configure(bg=C['bg'])
+        dlg.transient(self.window)
+        dlg.grab_set()
+        self._center_dialog(dlg, 420, 200)
+        tk.Label(dlg, text='Press the key combination to block',
+                 font=('Segoe UI', 12, 'bold'), bg=C['bg'],
+                 fg=C['text']).pack(pady=18)
+        status = tk.Label(dlg, text='Waiting…', font=('Segoe UI', 10),
+                          bg=C['bg'], fg=C['primary'])
+        status.pack()
+        detected = tk.Label(dlg, text='', font=('Consolas', 11, 'bold'),
+                            bg=C['bg'], fg=C['success'])
+        detected.pack()
+        bf = tk.Frame(dlg, bg=C['bg'])
+        bf.pack(pady=12)
+        add_btn = styled_btn(bf, 'Add', lambda: self._finish_key_detect(dlg),
+                             bg=C['success'], fg='#0a0a0a')
+        add_btn.pack(side=tk.LEFT, padx=4)
+        add_btn.config(state=tk.DISABLED)
+        styled_btn(bf, 'Cancel', lambda: self._cancel_key_detect(dlg),
+                   bg=C['danger'], fg='white').pack(side=tk.LEFT, padx=4)
+        self._detecting_key = True
+        self._detected_key = None
+
+        def on_press(evt):
+            if not self._detecting_key:
+                return
+            if evt.name in ('ctrl', 'alt', 'shift', 'cmd',
+                            'left shift', 'right shift',
+                            'left ctrl', 'right ctrl',
+                            'left alt', 'right alt'):
+                return
+            mods = []
+            if keyboard.is_pressed('ctrl'):  mods.append('ctrl')
+            if keyboard.is_pressed('alt'):   mods.append('alt')
+            if keyboard.is_pressed('shift'): mods.append('shift')
+            combo = '+'.join(mods + [evt.name])
+            self._detected_key = combo
+            detected.config(text=f'Detected: {combo}')
+            status.config(text='Got it!')
+            add_btn.config(state=tk.NORMAL)
+
+        self._key_hook = keyboard.on_press(on_press)
+
+    def _finish_key_detect(self, dlg):
+        if self._detected_key and \
+                self._detected_key not in self.sec.blocked_keys:
+            self.sec.add_blocked_key(self._detected_key)
+            self._load_keys_list()
+        self._cancel_key_detect(dlg)
+
+    def _cancel_key_detect(self, dlg):
+        self._detecting_key = False
+        if self._key_hook:
+            try:
+                keyboard.unhook(self._key_hook)
+            except Exception:
+                pass
+            self._key_hook = None
+        dlg.destroy()
+
+    # ── Mouse Detection ───────────────────────────────────────────
+    def _detect_mouse(self):
+        if self._detecting_mouse:
+            return
+        dlg = tk.Toplevel(self.window)
+        dlg.title('🎯 Detect Mouse Button')
+        dlg.geometry('420x200')
+        dlg.configure(bg=C['bg'])
+        dlg.transient(self.window)
+        dlg.grab_set()
+        self._center_dialog(dlg, 420, 200)
+        tk.Label(dlg, text='Click the mouse button to block',
+                 font=('Segoe UI', 12, 'bold'), bg=C['bg'],
+                 fg=C['text']).pack(pady=18)
+        status = tk.Label(dlg, text='Waiting…', font=('Segoe UI', 10),
+                          bg=C['bg'], fg=C['primary'])
+        status.pack()
+        detected = tk.Label(dlg, text='', font=('Consolas', 11, 'bold'),
+                            bg=C['bg'], fg=C['success'])
+        detected.pack()
+        bf = tk.Frame(dlg, bg=C['bg'])
+        bf.pack(pady=12)
+        add_btn = styled_btn(bf, 'Add',
+                             lambda: self._finish_mouse_detect(dlg),
+                             bg=C['success'], fg='#0a0a0a')
+        add_btn.pack(side=tk.LEFT, padx=4)
+        add_btn.config(state=tk.DISABLED)
+        styled_btn(bf, 'Cancel',
+                   lambda: self._cancel_mouse_detect(dlg),
+                   bg=C['danger'], fg='white').pack(side=tk.LEFT, padx=4)
+        self._detecting_mouse = True
+        self._detected_mouse = None
+
+        def on_click(x, y, button, pressed):
+            if not self._detecting_mouse or not pressed:
+                return False
+            name = str(button).replace('Button.', '')
+            self._detected_mouse = name
+            detected.config(text=f'Detected: {name}')
+            status.config(text='Got it!')
+            add_btn.config(state=tk.NORMAL)
+            return False
+
+        self._mouse_listener = pynput_mouse.Listener(on_click=on_click)
+        self._mouse_listener.start()
+
+    def _finish_mouse_detect(self, dlg):
+        if self._detected_mouse and \
+                self._detected_mouse not in \
+                self.sec.mouse_manager.blocked_buttons:
+            self.sec.mouse_manager.add_blocked_button(self._detected_mouse)
+            self._load_mouse_list()
+        self._cancel_mouse_detect(dlg)
+
+    def _cancel_mouse_detect(self, dlg):
+        self._detecting_mouse = False
+        if self._mouse_listener:
+            try:
+                self._mouse_listener.stop()
+            except Exception:
+                pass
+            self._mouse_listener = None
+        dlg.destroy()
+
+    # ── List management ───────────────────────────────────────────
+    def _load_keys_list(self):
+        self._keys_lb.delete(0, tk.END)
+        for k in self.sec.blocked_keys:
+            self._keys_lb.insert(tk.END, k)
+
+    def _add_key_manual(self):
+        combo = simpledialog.askstring(
+            'Add Key', "Key combo (e.g. 'ctrl+c'):",
+            parent=self.window)
+        if combo:
+            self.sec.add_blocked_key(combo.strip())
+            self._load_keys_list()
+
+    def _remove_key(self):
+        sel = self._keys_lb.curselection()
+        if sel:
+            self.sec.remove_blocked_key(self._keys_lb.get(sel[0]))
+            self._load_keys_list()
+
+    def _reset_keys(self):
+        self.sec.blocked_keys = Config.BLOCKED_KEYS.copy()
+        self._load_keys_list()
+
+    def _load_mouse_list(self):
+        self._mouse_lb.delete(0, tk.END)
+        for b in self.sec.mouse_manager.blocked_buttons:
+            self._mouse_lb.insert(tk.END, b)
+
+    def _add_mouse_manual(self):
+        btn = simpledialog.askstring(
+            'Add Button', "Button name (middle, x1, x2):",
+            parent=self.window)
+        if btn and btn.strip() not in self.sec.mouse_manager.blocked_buttons:
+            self.sec.mouse_manager.add_blocked_button(btn.strip())
+            self._load_mouse_list()
+
+    def _remove_mouse(self):
+        sel = self._mouse_lb.curselection()
+        if sel:
+            self.sec.mouse_manager.remove_blocked_button(
+                self._mouse_lb.get(sel[0]))
+            self._load_mouse_list()
+
+    def _load_website_list(self):
+        self._web_lb.delete(0, tk.END)
+        for w in Config.BLOCKED_WEBSITES:
+            self._web_lb.insert(tk.END, w)
+
+    def _add_website(self):
+        site = simpledialog.askstring(
+            'Add Site', "Website (e.g. example.com):",
+            parent=self.window)
+        if site and site.strip() not in Config.BLOCKED_WEBSITES:
+            Config.BLOCKED_WEBSITES.append(site.strip())
+            self._load_website_list()
+
+    def _remove_website(self):
+        sel = self._web_lb.curselection()
+        if sel:
+            site = self._web_lb.get(sel[0])
+            if site in Config.BLOCKED_WEBSITES:
+                Config.BLOCKED_WEBSITES.remove(site)
+            self._load_website_list()
+
+    # ── Settings persistence ──────────────────────────────────────
+    def _save_settings(self):
+        try:
+            self.db.save_settings_bulk({
+                'blocked_keys':
+                    json.dumps(self.sec.blocked_keys),
+                'blocked_mouse_buttons':
+                    json.dumps(self.sec.mouse_manager.blocked_buttons),
+                'blocked_websites':
+                    json.dumps(Config.BLOCKED_WEBSITES),
+                'auto_start_exam': str(self._autostart_var.get()),
+                'block_internet':  str(self._net_var.get()),
+                'window_protection': str(self._winprot_var.get()),
+                'process_monitoring': str(self._procmon_var.get()),
+            })
+            self._toast("💾 Settings saved", C['success'])
+        except Exception as e:
+            messagebox.showerror('Error', f'Save failed: {e}',
+                                  parent=self.window)
+
+    # ── Password change ───────────────────────────────────────────
+    def _change_password(self):
+        dlg = tk.Toplevel(self.window)
+        dlg.title('🔑 Change Admin Password')
+        dlg.geometry('420x300')
+        dlg.configure(bg=C['bg'])
+        dlg.transient(self.window)
+        dlg.grab_set()
+        self._center_dialog(dlg, 420, 300)
+        tk.Label(dlg, text='Change Password',
+                 font=('Segoe UI', 14, 'bold'), bg=C['bg'],
+                 fg=C['primary']).pack(pady=(18, 14))
+        fields = {}
+        for lbl_text in ['Current Password', 'New Password',
+                          'Confirm New Password']:
+            f = tk.Frame(dlg, bg=C['bg'])
+            f.pack(fill=tk.X, padx=32, pady=4)
+            tk.Label(f, text=lbl_text, font=('Segoe UI', 10),
+                     bg=C['bg'], fg=C['text']).pack(anchor=tk.W)
+            var = tk.StringVar()
+            dark_entry(f, var, show='*').pack(fill=tk.X, ipady=6)
+            fields[lbl_text] = var
+
+        def do_change():
+            cur     = fields['Current Password'].get()
+            new     = fields['New Password'].get()
+            confirm = fields['Confirm New Password'].get()
+            if not all([cur, new, confirm]):
+                messagebox.showerror('Error', 'Fill all fields', parent=dlg)
+                return
+            if new != confirm:
+                messagebox.showerror('Error', "Passwords don't match",
+                                      parent=dlg)
+                return
+            if len(new) < 4:
+                messagebox.showerror('Error', 'Min 4 characters', parent=dlg)
+                return
+            if self.db.change_password(
+                    self.admin_user,
+                    hashlib.sha256(cur.encode()).hexdigest(),
+                    hashlib.sha256(new.encode()).hexdigest()):
+                self._toast("✅ Password changed", C['success'])
+                self.log.info('PASSWORD_CHANGED', 'Admin password updated')
+                dlg.destroy()
+            else:
+                messagebox.showerror('Error', 'Current password incorrect',
+                                      parent=dlg)
+
+        styled_btn(dlg, 'Change Password', do_change,
+                   bg=C['primary'], fg='#0a0a0a').pack(pady=14)
+
+    # ── Quick module toggles ──────────────────────────────────────
+    def _show_mouse_ctrl(self):
+        self._quick_toggle(
+            'Mouse Blocking',
+            self.sec.mouse_manager.is_active,
+            self.sec.mouse_manager.start_blocking,
+            self.sec.mouse_manager.stop_blocking,
+            f"Blocked: {', '.join(self.sec.mouse_manager.blocked_buttons)}")
+
+    def _show_network_ctrl(self):
+        self._quick_toggle(
+            'Internet Blocking',
+            self.sec.network_manager.is_blocked,
+            self.sec.network_manager.start_blocking,
+            self.sec.network_manager.stop_blocking)
+
+    def _show_window_ctrl(self):
+        self._quick_toggle(
+            'Window Protection',
+            self.sec.window_manager.is_active,
+            self.sec.window_manager.start_window_protection,
+            self.sec.window_manager.stop_window_protection)
+
+    def _quick_toggle(self, name, is_active, start_fn, stop_fn,
+                       extra_info=''):
+        dlg = tk.Toplevel(self.window)
+        dlg.title(f'⚡ {name}')
+        dlg.geometry('440x260')
+        dlg.configure(bg=C['bg'])
+        dlg.transient(self.window)
+        self._center_dialog(dlg, 440, 260)
+        tk.Label(dlg, text=name, font=('Segoe UI', 16, 'bold'),
+                 bg=C['bg'], fg=C['primary']).pack(pady=(22, 8))
+        sc = C['success'] if is_active else C['danger']
+        st = '🟢  ACTIVE' if is_active else '🔴  INACTIVE'
+        tk.Label(dlg, text=st, font=('Segoe UI', 13),
+                 bg=C['bg'], fg=sc).pack()
+        if extra_info:
+            tk.Label(dlg, text=extra_info, font=('Consolas', 9),
+                     bg=C['bg'], fg=C['text_dim']).pack(pady=4)
+
+        def toggle():
+            if is_active:
+                stop_fn()
+            else:
+                start_fn()
+            self._refresh_status()
+            dlg.destroy()
+
+        bc = C['danger'] if is_active else C['success']
+        bt = '🛑  Deactivate' if is_active else '🚀  Activate'
+        styled_btn(dlg, bt, toggle, bg=bc,
+                   fg='white' if is_active else '#0a0a0a').pack(pady=16)
+
+    # ── Logs ─────────────────────────────────────────────────────
+    def _refresh_logs(self):
+        filt = self._filter_var.get()
+        logs = self.db.get_activity_logs(200, filter_type=filt)
+        self._logs_text.delete('1.0', tk.END)
+        for action, details, ts, blocked in logs:
+            tag = 'blocked' if blocked else 'ok'
+            icon = '🚫' if blocked else '✅'
+            self._logs_text.insert(tk.END, f"[{ts}] ", 'ts')
+            self._logs_text.insert(tk.END,
+                f"{icon} {action}: {details or '—'}\n", tag)
+        self._logs_text.see(tk.END)
+        stats = self.db.get_log_stats()
+        self._stats_label.config(
+            text=f"Total: {stats['total']}  ·  "
+                 f"Blocked: {stats['blocked']}  ·  "
+                 f"Allowed: {stats['allowed']}")
+
+    def _clear_logs(self):
+        if messagebox.askyesno('Confirm',
+                'Delete all logs? Cannot be undone.', parent=self.window):
+            self.db.clear_all_logs()
+            self._logs_text.delete('1.0', tk.END)
+            self._stats_label.config(
+                text='Total: 0  ·  Blocked: 0  ·  Allowed: 0')
+            self._toast("🗑 Logs cleared", C['warning'])
+
+    def _export_logs(self):
+        path = filedialog.asksaveasfilename(
+            defaultextension='.txt', parent=self.window,
+            filetypes=[('Text', '*.txt'), ('CSV', '*.csv'),
+                       ('All', '*.*')])
+        if not path:
+            return
+        try:
+            logs = self.db.get_activity_logs(5000)
+            if path.endswith('.csv'):
+                with open(path, 'w', encoding='utf-8', newline='') as f:
+                    f.write('Timestamp,Action,Details,Status\n')
+                    for a, d, t, b in logs:
+                        s = 'BLOCKED' if b else 'ALLOWED'
+                        f.write(f'"{t}","{a}","{d or ""}","{s}"\n')
+            else:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write("EXAM SHIELD — SECURITY LOG EXPORT\n")
+                    f.write("=" * 50 + "\n")
+                    f.write(f"Date: "
+                             f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n")
+                    f.write(f"Entries: {len(logs)}\n")
+                    f.write("=" * 50 + "\n\n")
+                    for a, d, t, b in logs:
+                        s = 'BLOCKED' if b else 'ALLOWED'
+                        f.write(f"[{t}] {s}: {a}\n  {d or '—'}\n\n")
+            self._toast(f"💾 Exported: {path[-40:]}", C['info'])
+        except Exception as e:
+            messagebox.showerror('Error', f'Export failed: {e}',
+                                  parent=self.window)
+
+    # ── Auto-refresh ─────────────────────────────────────────────
+    def _start_auto_refresh(self):
+        def loop():
+            while True:
+                try:
+                    if not self.window.winfo_exists():
+                        break
+                    self.window.after(0, self._refresh_status)
+                    self.window.after(0, self._update_activity)
+                    time.sleep(2)
+                except Exception:
+                    break
+        threading.Thread(target=loop, daemon=True).start()
+
+    def _update_activity(self):
+        try:
+            for item in self._tree.get_children():
+                self._tree.delete(item)
+            for action, details, ts, blocked in \
+                    self.db.get_activity_logs(30):
+                status = '🚫 BLOCKED' if blocked else '✅ OK'
+                if blocked or any(x in action for x in
+                                  ('SUSPICIOUS', 'TERMINATED')):
+                    sev = '🔴 HIGH'
+                    tag = 'high'
+                elif any(x in action for x in ('BLOCKED', 'SECURITY')):
+                    sev = '🟡 MED'
+                    tag = 'med'
+                else:
+                    sev = '🟢 LOW'
+                    tag = 'low'
+                try:
+                    dt = datetime.datetime.fromisoformat(
+                        ts.replace('Z', '+00:00'))
+                    time_str = dt.strftime('%H:%M:%S')
+                except Exception:
+                    time_str = ts
+                self._tree.insert('', 0,
+                    values=(time_str, sev, action,
+                             details or '—', status),
+                    tags=(tag,))
+        except Exception:
+            pass
+
+    # ── Helpers ───────────────────────────────────────────────────
+    def _center(self):
+        self.window.update_idletasks()
+        w, h = 1100, 720
+        x = (self.window.winfo_screenwidth() - w) // 2
+        y = (self.window.winfo_screenheight() - h) // 2
+        self.window.geometry(f'{w}x{h}+{x}+{y}')
+        self.window.protocol('WM_DELETE_WINDOW', self._on_close)
+
+    def _center_dialog(self, dlg, w, h):
+        dlg.update_idletasks()
+        x = (dlg.winfo_screenwidth() - w) // 2
+        y = (dlg.winfo_screenheight() - h) // 2
+        dlg.geometry(f'{w}x{h}+{x}+{y}')
+
+    def _on_close(self):
+        if messagebox.askyesno('Confirm', 'Minimise to system tray?',
+                                parent=self.window):
             self.window.withdraw()
 
     def show(self):
         self.window.deiconify()
         self.window.lift()
-        self.refresh_status()
-        self.load_blocked_keys()
-        self.load_blocked_mouse_buttons()
-        self.load_blocked_websites()
+        self._refresh_status()
+        self._load_keys_list()
+        self._load_mouse_list()
+        self._load_website_list()
