@@ -176,6 +176,7 @@ class SecurityManager:
                 'hooks_active': self.hooks_active,
                 'mouse_blocking': self.mouse_manager.is_active,
                 'internet_blocked': self.network_manager.is_blocked,
+                'usb_blocking': self.usb_manager.is_active,
                 'window_protection': self.window_manager.is_active,
             }
         except Exception:

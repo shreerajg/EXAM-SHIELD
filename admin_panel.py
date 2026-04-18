@@ -237,7 +237,8 @@ class AdminPanel:
         for key, icon, label in [('keyboard', '⌨', 'Keyboard'),
                                    ('mouse',    '🖱', 'Mouse'),
                                    ('network',  '🌐', 'Network'),
-                                   ('windows',  '🪟', 'Windows')]:
+                                   ('windows',  '🪟', 'Windows'),
+                                   ('usb',     '💾', 'USB')]:
             card = tk.Frame(ind_row, bg=C['surface'], padx=12, pady=8)
             card.pack(side=tk.LEFT, padx=(0, 8))
             lbl = tk.Label(card, text=f"⬤  {icon} {label}",
@@ -1053,6 +1054,13 @@ class AdminPanel:
             self.sec.window_manager.is_active,
             self.sec.window_manager.start_window_protection,
             self.sec.window_manager.stop_window_protection)
+
+    def _show_usb_ctrl(self):
+        self._quick_toggle(
+            'USB Storage Lock',
+            self.sec.usb_manager.is_active,
+            self.sec.usb_manager.start_blocking,
+            self.sec.usb_manager.stop_blocking)
 
     def _quick_toggle(self, name, is_active, start_fn, stop_fn,
                        extra_info=''):
