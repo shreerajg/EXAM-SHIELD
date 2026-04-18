@@ -55,6 +55,12 @@ class SecurityManager:
         if sel.get('internet', True) and Config.BLOCK_INTERNET:
             self.network_manager.start_blocking()
         if sel.get('windows', True):
+            # Register the admin panel window BEFORE starting so it gets
+            # protected immediately when protection activates
+            if self.admin_panel and hasattr(self.admin_panel, 'window'):
+                self.window_manager.register_protected_window(
+                    self.admin_panel.window, "Admin Panel"
+                )
             self.window_manager.start_window_protection()
 
         active = [k for k, v in sel.items() if v]

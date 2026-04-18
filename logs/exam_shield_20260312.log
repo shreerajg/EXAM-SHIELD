@@ -39,3 +39,19 @@
 2026-03-12 00:17:38 | INFO     | [MOUSE_BLOCKING_STOP] Mouse blocking deactivated
 2026-03-12 00:17:38 | INFO     | [WIN_PROTECT_STOP] Window protection deactivated
 2026-03-12 00:17:38 | INFO     | [EXAM_MODE_STOP] All restrictions removed
+2026-03-12 00:28:51 | INFO     | [APP_START] ExamShield launched with admin privileges
+2026-03-12 00:28:54 | INFO     | [ADMIN_LOGIN] Session started for: admin
+2026-03-12 00:28:59 | INFO     | [MOUSE_BLOCKING_START] Blocking: none
+2026-03-12 00:29:40 | INFO     | [MOUSE_BLOCKING_STOP] Mouse blocking deactivated
+2026-03-12 00:29:56 | INFO     | [MOUSE_BLOCKING_START] Blocking: right, middle, side
+2026-03-12 00:30:24 | INFO     | [MOUSE_BLOCKING_STOP] Mouse blocking deactivated
+2026-03-12 00:30:57 | INFO     | [MOUSE_BLOCKING_START] Blocking: right, middle, side
+2026-03-12 00:30:57 | INFO     | [WIN_PROTECT_START] Window protection activated
+2026-03-12 00:30:57 | INFO     | [EXAM_MODE_START] Active modules: mouse, windows
+2026-03-12 00:30:58 | INFO     | [SECURITY:ALLOWED] [ENFORCED_FULLSCREEN] Forced max: New Tab - Google Chrome
+2026-03-12 00:31:17 | INFO     | [SECURITY:ALLOWED] [ENFORCED_FULLSCREEN] Forced max: New Tab - Google Chrome
+2026-03-12 00:31:41 | INFO     | [KEYBOARD_HOOKS] Hooks removed
+2026-03-12 00:31:41 | INFO     | [MOUSE_BLOCKING_STOP] Mouse blocking deactivated
+2026-03-12 00:31:41 | INFO     | [WIN_PROTECT_STOP] Window protection deactivated
+2026-03-12 00:31:41 | INFO     | [EXAM_MODE_STOP] All restrictions removed
+2026-03-12 00:31:54 | INFO     | [APP_CLEANUP] Graceful shutdown complete
