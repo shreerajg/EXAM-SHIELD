@@ -286,6 +286,7 @@ class AdminPanel:
             ("🖱  Mouse",          self._show_mouse_ctrl),
             ("🌐  Internet",       self._show_network_ctrl),
             ("🪟  Windows",        self._show_window_ctrl),
+            ("💾  USB",           self._show_usb_ctrl),
             ("🔑  Password",       self._change_password),
         ]:
             styled_btn(qrow, label, cmd, bg=C['surface']).pack(

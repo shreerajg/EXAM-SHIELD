@@ -41,6 +41,7 @@ class Config:
         'internet': True,
         'windows': True,
         'processes': True,
+        'usb': True,
     }
 
     # ── Network Blocking ─────────────────────────────────────────
