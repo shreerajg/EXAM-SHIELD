@@ -560,6 +560,8 @@ class AdminPanel:
              'Prevent closing/minimising windows'),
             ('processes', '🔍', 'Process Monitor',
              'Auto-terminate suspicious processes'),
+            ('usb',      '💾', 'USB Storage Lock',
+             'Block USB mass storage devices'),
         ]
         sel_vars = {}
         for key, icon, title, desc in modules:
