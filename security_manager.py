@@ -9,6 +9,7 @@ from config import Config
 from mouse_manager import MouseManager
 from network_manager import NetworkManager
 from window_manager import WindowManager
+from usb_manager import USBManager
 from logger import ExamShieldLogger
 
 
@@ -25,6 +26,7 @@ class SecurityManager:
         self.mouse_manager = MouseManager(db_manager)
         self.network_manager = NetworkManager(db_manager)
         self.window_manager = WindowManager(db_manager)
+        self.usb_manager = USBManager(db_manager)
 
         # Thread control
         self._proc_stop = threading.Event()
