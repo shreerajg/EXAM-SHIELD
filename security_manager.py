@@ -56,6 +56,8 @@ class SecurityManager:
             self.mouse_manager.start_blocking()
         if sel.get('internet', True) and Config.BLOCK_INTERNET:
             self.network_manager.start_blocking()
+        if sel.get('usb', True):
+            self.usb_manager.start_blocking()
         if sel.get('windows', True):
             # Register the admin panel window BEFORE starting so it gets
             # protected immediately when protection activates
@@ -78,6 +80,7 @@ class SecurityManager:
         self._stop_process_monitor()
         self.mouse_manager.stop_blocking()
         self.network_manager.stop_blocking()
+        self.usb_manager.stop_blocking()
         self.window_manager.stop_window_protection()
 
         # Reset selective_blocking so next session starts fresh
