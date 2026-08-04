@@ -10,12 +10,12 @@ import atexit
 import hashlib
 import ctypes
 import threading
-from config import Config
-from database_manager import DatabaseManager
-from admin_panel import AdminPanel
-from security_manager import SecurityManager
-from system_tray import SystemTray
-from logger import ExamShieldLogger
+from src.config import Config
+from src.managers.database_manager import DatabaseManager
+from src.ui.admin_panel import AdminPanel
+from src.managers.security_manager import SecurityManager
+from src.ui.system_tray import SystemTray
+from src.logger import ExamShieldLogger
 
 
 class ExamShield:

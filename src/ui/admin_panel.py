@@ -6,8 +6,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, simpledialog, filedialog
 import threading, time, json, datetime, hashlib, keyboard
 from pynput import mouse as pynput_mouse
-from config import Config
-from logger import ExamShieldLogger
+from src.config import Config
+from src.logger import ExamShieldLogger
 
 C = Config.COLORS
 

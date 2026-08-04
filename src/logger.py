@@ -5,7 +5,7 @@ Dual-output: file + database. Every module uses this.
 import logging
 import os
 from datetime import datetime, timedelta
-from config import Config
+from src.config import Config
 
 
 class ExamShieldLogger:

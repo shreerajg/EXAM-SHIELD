@@ -8,7 +8,7 @@ import hashlib
 import sys
 import tkinter as tk
 from tkinter import simpledialog, messagebox
-from logger import ExamShieldLogger
+from src.logger import ExamShieldLogger
 
 
 class SystemTray:
