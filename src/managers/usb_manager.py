@@ -7,8 +7,8 @@ import ctypes.wintypes as wintypes
 import threading
 import time
 import subprocess
-from logger import ExamShieldLogger
-from config import Config
+from src.logger import ExamShieldLogger
+from src.config import Config
 
 GUID_DEVINTERFACE_VOLUME = "{53f5630d-b6bf-11d0-94f8-00aa00395901}"
 GUID_DEVINTERFACE_DISK = "{53f56307-b6bf-11d0-94f8-00aa00395901}"

@@ -8,8 +8,8 @@ import ctypes
 import ctypes.wintypes as wintypes
 import threading
 import time
-from logger import ExamShieldLogger
-from config import Config
+from src.logger import ExamShieldLogger
+from src.config import Config
 
 # ── Win32 constants ───────────────────────────────────────────────
 WH_MOUSE_LL      = 14

@@ -5,12 +5,12 @@ Orchestrates all security subsystems (keyboard, mouse, network, windows, process
 import keyboard
 import threading
 import psutil
-from config import Config
-from mouse_manager import MouseManager
-from network_manager import NetworkManager
-from window_manager import WindowManager
-from usb_manager import USBManager
-from logger import ExamShieldLogger
+from src.config import Config
+from src.managers.mouse_manager import MouseManager
+from src.managers.network_manager import NetworkManager
+from src.managers.window_manager import WindowManager
+from src.managers.usb_manager import USBManager
+from src.logger import ExamShieldLogger
 
 
 class SecurityManager:

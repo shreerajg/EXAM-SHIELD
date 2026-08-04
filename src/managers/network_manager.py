@@ -8,8 +8,8 @@ import platform
 import subprocess
 import threading
 import time
-from config import Config
-from logger import ExamShieldLogger
+from src.config import Config
+from src.logger import ExamShieldLogger
 
 
 class NetworkManager:

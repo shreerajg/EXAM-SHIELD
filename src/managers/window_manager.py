@@ -16,7 +16,7 @@ import threading
 import win32gui
 import win32con
 import win32api
-from logger import ExamShieldLogger
+from src.logger import ExamShieldLogger
 
 
 # Browser window class names (title-independent, works in any language)
