@@ -337,6 +337,8 @@ class AdminPanel:
         self._tree.tag_configure('high', foreground=C['danger'])
         self._tree.tag_configure('med',  foreground=C['warning'])
         self._tree.tag_configure('low',  foreground=C['success'])
+        self._tree.tag_configure('evenrow', background=C['bg'])
+        self._tree.tag_configure('oddrow', background=C['surface_alt'])
 
         vsb = ttk.Scrollbar(af, orient=tk.VERTICAL, command=self._tree.yview)
         self._tree.configure(yscrollcommand=vsb.set)
@@ -1169,8 +1171,8 @@ class AdminPanel:
         try:
             for item in self._tree.get_children():
                 self._tree.delete(item)
-            for action, details, ts, blocked in \
-                    self.db.get_activity_logs(30):
+            for i, (action, details, ts, blocked) in \
+                    enumerate(self.db.get_activity_logs(30)):
                 status = '🚫 BLOCKED' if blocked else '✅ OK'
                 if blocked or any(x in action for x in
                                   ('SUSPICIOUS', 'TERMINATED')):
@@ -1188,10 +1190,11 @@ class AdminPanel:
                     time_str = dt.strftime('%H:%M:%S')
                 except Exception:
                     time_str = ts
+                bg_tag = 'evenrow' if i % 2 == 0 else 'oddrow'
                 self._tree.insert('', 0,
                     values=(time_str, sev, action,
                              details or '—', status),
-                    tags=(tag,))
+                    tags=(tag, bg_tag))
         except Exception:
             pass
 
