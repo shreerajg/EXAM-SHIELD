@@ -290,23 +290,7 @@ class WindowManager:
                 return
         self.log.warning("LAUNCH_BROWSER", "No supported browser found")
 
-import threading
-import win32gui
-import win32con
-import win32api
-from src.logger import ExamShieldLogger
 
-
-# Browser window class names (title-independent, works in any language)
-BROWSER_CLASSES = {
-    'Chrome_WidgetWin_1',      # Chrome / new Edge
-    'Chrome_WidgetWin_0',
-    'MozillaWindowClass',      # Firefox
-    'MozillaDialogClass',
-    'IEFrame',                 # Internet Explorer / old Edge
-    'OperaWindowClass',
-    'OperaToplevelOldChrome',
-}
 
 # Additional processes whose top-level windows should be fullscreened
 BROWSER_EXES = {
