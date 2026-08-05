@@ -141,8 +141,6 @@ class WindowManager:
         def _cb(hwnd, _):
             if not win32gui.IsWindowVisible(hwnd):
                 return True
-            if win32gui.IsIconic(hwnd):           # minimised → restore
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
 
             cls   = win32gui.GetClassName(hwnd)
             title = win32gui.GetWindowText(hwnd)
@@ -155,6 +153,9 @@ class WindowManager:
             )
 
             if is_browser:
+                if win32gui.IsIconic(hwnd):           # minimised → restore
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+
                 # Maximise if not already covering ≥90 % of the screen
                 rect = win32gui.GetWindowRect(hwnd)
                 w = rect[2] - rect[0]
@@ -166,21 +167,21 @@ class WindowManager:
                         f"Forced max: {title or cls}", blocked=False
                     )
 
-                # Strip close / min / max title-bar buttons
-                style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-                new_style = style & ~(
-                    win32con.WS_MAXIMIZEBOX
-                    | win32con.WS_MINIMIZEBOX
-                    | win32con.WS_SYSMENU
+            # Strip WS_MINIMIZEBOX from ALL visible windows to prevent hiding
+            style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
+            if is_browser:
+                new_style = style & ~(win32con.WS_MAXIMIZEBOX | win32con.WS_MINIMIZEBOX | win32con.WS_SYSMENU)
+            else:
+                new_style = style & ~win32con.WS_MINIMIZEBOX
+
+            if new_style != style:
+                win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, new_style)
+                # Force redraw of title bar
+                win32gui.SetWindowPos(
+                    hwnd, 0, 0, 0, 0, 0,
+                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE
+                    | win32con.SWP_NOZORDER | win32con.SWP_FRAMECHANGED
                 )
-                if new_style != style:
-                    win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, new_style)
-                    # Force redraw of title bar
-                    win32gui.SetWindowPos(
-                        hwnd, None, 0, 0, 0, 0,
-                        win32con.SWP_NOMOVE | win32con.SWP_NOSIZE
-                        | win32con.SWP_NOZORDER | win32con.SWP_FRAMECHANGED
-                    )
 
             return True
 
