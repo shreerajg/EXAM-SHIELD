@@ -38,7 +38,7 @@ class ExamShield:
         self.log = ExamShieldLogger(self.db)
         self.security = None
         self.tray = None
-        self._logged_in_user = None   # track current user
+        self._logged_in_user = None   
 
         self._build_login_ui()
         self._center()
