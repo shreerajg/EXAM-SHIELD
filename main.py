@@ -27,7 +27,7 @@ class ExamShield:
         self.root = tk.Tk()
         self.root.withdraw()   # hide until we fade in
         self.root.title(f"Exam Shield v{Config.VERSION}")
-        self.root.geometry("480x660")
+        self.root.geometry("500x700")
         self.root.resizable(False, False)
         self.root.overrideredirect(False)
 
@@ -102,66 +102,82 @@ class ExamShield:
 
         # ── Animated Header Canvas
         self._hdr_canvas = tk.Canvas(
-            self.root, bg=C['surface'], height=180,
+            self.root, bg=C['surface'], height=200,
             highlightthickness=0
         )
         self._hdr_canvas.pack(fill=tk.X)
 
         # Gradient-like bands (simulated)
-        for i in range(180):
-            ratio = i / 180
-            r = int(18 + ratio * 10)
-            g = int(18 + ratio * 5)
-            b = int(42 + ratio * 20)
+        for i in range(200):
+            ratio = i / 200
+            r = int(12 + ratio * 14)
+            g = int(10 + ratio * 8)
+            b = int(36 + ratio * 26)
             color = f'#{r:02x}{g:02x}{b:02x}'
-            self._hdr_canvas.create_rectangle(0, i, 480, i+1, fill=color, outline=color)
+            self._hdr_canvas.create_rectangle(0, i, 500, i+1, fill=color, outline=color)
+
+        # Floating particles (static glowing dots)
+        import random
+        random.seed(42)
+        self._particles = []
+        for _ in range(22):
+            x = random.randint(10, 490)
+            y = random.randint(5, 195)
+            r = random.choice([1, 1, 2, 2, 3])
+            col = random.choice([C['primary'], C['accent'], C['primary_dark'], '#ffffff33'])
+            dot = self._hdr_canvas.create_oval(x-r, y-r, x+r, y+r, fill=col, outline='')
+            self._particles.append({'id': dot, 'x': x, 'y': y,
+                                    'dx': random.uniform(-0.4, 0.4),
+                                    'dy': random.uniform(-0.2, 0.2),
+                                    'r': r})
+        self._animate_particles()
 
         # Shield glow aura
         self._shield_aura = self._hdr_canvas.create_oval(
-            160, 20, 320, 150, fill='', outline=C['primary'], width=1
+            170, 20, 330, 160, fill='', outline=C['primary'], width=1
         )
         self._shield_aura2 = self._hdr_canvas.create_oval(
-            170, 30, 310, 140, fill='', outline=C['primary_dark'], width=1
+            180, 30, 320, 150, fill='', outline=C['primary_dark'], width=1
         )
 
         # Shield icon (Canvas polygon)
-        cx, cy = 240, 85
+        cx, cy = 250, 90
         pts = [
-            cx, cy - 52,          # top
-            cx + 38, cy - 28,     # upper-right
-            cx + 38, cy + 14,     # lower-right
-            cx, cy + 52,          # bottom
-            cx - 38, cy + 14,     # lower-left
-            cx - 38, cy - 28,     # upper-left
+            cx, cy - 56,          # top
+            cx + 42, cy - 30,     # upper-right
+            cx + 42, cy + 16,     # lower-right
+            cx, cy + 58,          # bottom
+            cx - 42, cy + 16,     # lower-left
+            cx - 42, cy - 30,     # upper-left
         ]
         self._shield_outer = self._hdr_canvas.create_polygon(
             pts, fill=C['primary'], outline=C['primary_dark'], width=2, smooth=False
         )
         inner_pts = [
-            cx, cy - 36,
-            cx + 26, cy - 18,
-            cx + 26, cy + 8,
-            cx, cy + 36,
-            cx - 26, cy + 8,
-            cx - 26, cy - 18,
+            cx, cy - 38,
+            cx + 28, cy - 20,
+            cx + 28, cy + 10,
+            cx, cy + 40,
+            cx - 28, cy + 10,
+            cx - 28, cy - 20,
         ]
         self._hdr_canvas.create_polygon(
             inner_pts, fill=C['surface'], outline='', smooth=False
         )
         # Checkmark inside shield
         self._hdr_canvas.create_line(
-            cx - 12, cy + 2, cx - 2, cy + 12,
-            cx + 14, cy - 10,
+            cx - 14, cy + 2, cx - 2, cy + 14,
+            cx + 16, cy - 12,
             fill=C['success'], width=3, joinstyle=tk.ROUND, capstyle=tk.ROUND
         )
 
         # App name & subtitle
         self._hdr_canvas.create_text(
-            240, 142, text="EXAM SHIELD",
+            250, 157, text="EXAM SHIELD",
             font=("Segoe UI", 17, "bold"), fill=C['primary']
         )
         self._hdr_canvas.create_text(
-            240, 162, text=f"v{Config.VERSION}  •  Secure Exam Environment",
+            250, 177, text=f"v{Config.VERSION}  •  Secure Exam Environment",
             font=("Segoe UI", 9), fill=C['text_dim']
         )
 
@@ -230,10 +246,20 @@ class ExamShield:
                  pady=6).pack()
 
         # ── Footer
-        tk.Label(self.root,
+        footer = tk.Frame(self.root, bg=C['surface'], height=28)
+        footer.pack(side=tk.BOTTOM, fill=tk.X)
+        footer.pack_propagate(False)
+        self._footer_clock = tk.Label(
+            footer,
+            text="",
+            font=("Consolas", 8), bg=C['surface'], fg=C['text_dim']
+        )
+        self._footer_clock.pack(side=tk.RIGHT, padx=10)
+        tk.Label(footer,
                  text=f"ExamShield v{Config.VERSION} · {Config.BUILD} · © 2025",
-                 font=("Consolas", 8), bg=C['bg'], fg=C['text_dim']
-                 ).pack(side=tk.BOTTOM, pady=6)
+                 font=("Consolas", 8), bg=C['surface'], fg=C['text_dim']
+                 ).pack(side=tk.LEFT, padx=10)
+        self._tick_footer_clock()
 
         # ── Key bindings
         self._pw_entry.bind("<Return>", lambda e: self._login())
@@ -301,7 +327,35 @@ class ExamShield:
             alpha_val = 0.35 + 0.35 * math.sin(self._pulse_phase)
             width_val = 1 + int(2 * abs(math.sin(self._pulse_phase)))
             self._hdr_canvas.itemconfig(self._shield_aura, width=width_val)
+            # Inner aura glow offset
+            glow_r = int(6 * abs(math.sin(self._pulse_phase)))
             self.root.after(Config.ANIM_STEP_MS * 2, self._animate_shield)
+        except Exception:
+            pass
+
+    def _animate_particles(self):
+        """Gently drift particles around the header."""
+        try:
+            for p in self._particles:
+                p['x'] += p['dx']
+                p['y'] += p['dy']
+                # Bounce off edges
+                if p['x'] < 2 or p['x'] > 498:  p['dx'] *= -1
+                if p['y'] < 2 or p['y'] > 198:  p['dy'] *= -1
+                r = p['r']
+                self._hdr_canvas.coords(p['id'],
+                    p['x']-r, p['y']-r, p['x']+r, p['y']+r)
+            self.root.after(40, self._animate_particles)
+        except Exception:
+            pass
+
+    def _tick_footer_clock(self):
+        """Update the footer clock each second."""
+        try:
+            import datetime
+            now = datetime.datetime.now().strftime("%Y-%m-%d  %H:%M:%S")
+            self._footer_clock.config(text=now)
+            self.root.after(1000, self._tick_footer_clock)
         except Exception:
             pass
 
@@ -387,7 +441,7 @@ class ExamShield:
 
     def _center(self):
         self.root.update_idletasks()
-        w, h = 480, 660
+        w, h = 500, 700
         x = (self.root.winfo_screenwidth() - w) // 2
         y = (self.root.winfo_screenheight() - h) // 2
         self.root.geometry(f"{w}x{h}+{x}+{y}")

@@ -315,7 +315,7 @@ class AdminPanel:
                    self._refresh_status, bg=C['surface_alt']).pack(side=tk.RIGHT)
 
         # Threat detection
-        section_header(pg, "Threat Detection")
+        section_header(pg, "Threat Detection", C['warning'])
         tf = tk.Frame(pg, bg=C['card'], padx=16, pady=12)
         tf.pack(fill=tk.X, padx=16, pady=(0, 8))
         self._threat_label = tk.Label(tf, text="🛡️  No threats detected",
@@ -324,7 +324,7 @@ class AdminPanel:
         self._threat_label.pack(anchor=tk.W)
 
         # Quick controls
-        section_header(pg, "Quick Module Controls")
+        section_header(pg, "Quick Module Controls", C['accent'])
         qrow = tk.Frame(pg, bg=C['bg'])
         qrow.pack(fill=tk.X, padx=16, pady=(0, 8))
 
@@ -381,7 +381,7 @@ class AdminPanel:
     # ── Page: Live Monitor ───────────────────────────────────────
     def _build_monitor(self):
         pg = tk.Frame(self._content, bg=C['bg'])
-        section_header(pg, "Real-time Security Events")
+        section_header(pg, "Real-time Security Events", C['warning'])
         af = tk.Frame(pg, bg=C['bg'])
         af.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
 
@@ -560,7 +560,7 @@ class AdminPanel:
     # ── Page: Logs ───────────────────────────────────────────────
     def _build_logs(self):
         pg = tk.Frame(self._content, bg=C['bg'])
-        section_header(pg, "Activity Logs")
+        section_header(pg, "Activity Logs", C['info'])
         toolbar = tk.Frame(pg, bg=C['bg'])
         toolbar.pack(fill=tk.X, padx=16, pady=4)
         for t, cmd in [('🔄 Refresh', self._refresh_logs),
