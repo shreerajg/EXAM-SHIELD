@@ -200,7 +200,7 @@ class WindowManager:
                                   f"Blocked {event.keysym}", blocked=True)
                 return "break"
 
-            for key in ('<F11>', '<Escape>', '<Alt-F4>', '<Alt-Tab>'):
+            for key in ('<F11>', '<Escape>'):
                 window.bind(key, _block)
         except Exception as e:
             self.log.error("FULLSCREEN", f"Error: {e}")
