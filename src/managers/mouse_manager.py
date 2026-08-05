@@ -179,10 +179,9 @@ class MouseManager:
         """Post WM_QUIT to the hook thread to unblock its message loop."""
         try:
             if self._hook_thread and self._hook_thread.is_alive():
-                tid = ctypes.windll.kernel32.GetThreadId(
-                    ctypes.c_void_p(self._hook_thread.ident)
-                )
-                ctypes.windll.user32.PostThreadMessageW(tid, 0x0012, 0, 0)
+                tid = self._hook_thread.ident
+                if tid:
+                    ctypes.windll.user32.PostThreadMessageW(tid, 0x0012, 0, 0)
         except Exception:
             pass
 

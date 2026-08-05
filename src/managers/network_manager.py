@@ -111,22 +111,14 @@ class NetworkManager:
     def _set_dns_loopback(self):
         if platform.system().lower() != "windows":
             return
-        for iface in ("Wi-Fi", "Ethernet", "Local Area Connection"):
-            subprocess.run(
-                ['netsh', 'interface', 'ip', 'set', 'dns',
-                 f'name="{iface}"', 'source=static', 'addr=127.0.0.1'],
-                capture_output=True, text=True
-            )
+        ps_cmd = "Get-NetAdapter | Where-Object Status -eq 'Up' | Set-DnsClientServerAddress -ServerAddresses ('127.0.0.1')"
+        subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True, text=True)
 
     def _restore_dns(self):
         if platform.system().lower() != "windows":
             return
-        for iface in ("Wi-Fi", "Ethernet", "Local Area Connection"):
-            subprocess.run(
-                ['netsh', 'interface', 'ip', 'set', 'dns',
-                 f'name="{iface}"', 'source=dhcp'],
-                capture_output=True, text=True
-            )
+        ps_cmd = "Get-NetAdapter | Where-Object Status -eq 'Up' | Set-DnsClientServerAddress -ResetServerAddresses"
+        subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True, text=True)
 
     def _flush_dns(self):
         if platform.system().lower() == "windows":
