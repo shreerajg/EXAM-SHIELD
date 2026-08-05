@@ -44,12 +44,17 @@ def dark_entry(parent, var, show=None):
                  highlightbackground=C['border'])
     return e
 
-def section_header(parent, text):
+def section_header(parent, text, icon_color=None):
+    color = icon_color or C['primary']
     f = tk.Frame(parent, bg=C['bg'])
-    f.pack(fill=tk.X, padx=16, pady=(14, 4))
-    tk.Label(f, text=text, font=('Segoe UI', 12, 'bold'),
-             bg=C['bg'], fg=C['primary']).pack(anchor=tk.W)
-    tk.Frame(f, bg=C['border'], height=1).pack(fill=tk.X, pady=(2, 0))
+    f.pack(fill=tk.X, padx=16, pady=(16, 6))
+    row = tk.Frame(f, bg=C['bg'])
+    row.pack(fill=tk.X)
+    # Left accent bar
+    tk.Frame(row, bg=color, width=3).pack(side=tk.LEFT, fill=tk.Y, pady=2, padx=(0, 8))
+    tk.Label(row, text=text, font=('Segoe UI', 11, 'bold'),
+             bg=C['bg'], fg=color).pack(anchor=tk.W, side=tk.LEFT)
+    tk.Frame(f, bg=C['border'], height=1).pack(fill=tk.X, pady=(4, 0))
 
 
 class AdminPanel:
@@ -114,19 +119,35 @@ class AdminPanel:
     # ── Main UI (Sidebar + Content) ──────────────────────────────
     def _build_ui(self):
         # Top header bar
-        hdr = tk.Frame(self.window, bg=C['surface'], height=52)
+        hdr = tk.Frame(self.window, bg=C['surface'], height=56)
         hdr.pack(fill=tk.X)
         hdr.pack_propagate(False)
-        tk.Label(hdr, text="🛡️  EXAM SHIELD — CONTROL CENTRE",
-                 font=('Segoe UI', 14, 'bold'), bg=C['surface'],
-                 fg=C['primary']).pack(side=tk.LEFT, padx=18)
-        self._status_badge = tk.Label(hdr, text="⬤  STANDBY",
+        # Left brand
+        brand = tk.Frame(hdr, bg=C['surface'])
+        brand.pack(side=tk.LEFT, padx=18, fill=tk.Y)
+        tk.Label(brand, text="🛡️", font=('Segoe UI', 18),
+                 bg=C['surface'], fg=C['primary']).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Label(brand, text="EXAM SHIELD",
+                 font=('Segoe UI', 13, 'bold'), bg=C['surface'],
+                 fg=C['primary']).pack(side=tk.LEFT)
+        tk.Label(brand, text=" CONTROL CENTRE",
+                 font=('Segoe UI', 10), bg=C['surface'],
+                 fg=C['text_dim']).pack(side=tk.LEFT)
+        # Right: status + clock + user
+        right = tk.Frame(hdr, bg=C['surface'])
+        right.pack(side=tk.RIGHT, padx=18, fill=tk.Y)
+        self._clock_label = tk.Label(right, text="",
+                                      font=('Consolas', 10),
+                                      bg=C['surface'], fg=C['text_dim'])
+        self._clock_label.pack(side=tk.RIGHT, padx=(12, 0))
+        tk.Label(right, text=f"👤  {self.admin_user}",
+                 font=('Segoe UI', 9, 'bold'), bg=C['surface'],
+                 fg=C['text_dim']).pack(side=tk.RIGHT, padx=(12, 0))
+        self._status_badge = tk.Label(right, text="⬤  STANDBY",
                                        font=('Consolas', 11, 'bold'),
                                        bg=C['surface'], fg=C['text_dim'])
-        self._status_badge.pack(side=tk.RIGHT, padx=18)
-        tk.Label(hdr, text=f"User: {self.admin_user}",
-                 font=('Segoe UI', 9), bg=C['surface'],
-                 fg=C['text_dim']).pack(side=tk.RIGHT, padx=4)
+        self._status_badge.pack(side=tk.RIGHT)
+        self._start_clock()
 
         # Separator
         tk.Frame(self.window, bg=C['primary'], height=2).pack(fill=tk.X)
@@ -188,6 +209,19 @@ class AdminPanel:
         # Show initial page
         self._nav_to('dashboard')
 
+    def _start_clock(self):
+        """Update the clock label every second."""
+        def _tick():
+            try:
+                if not self.window.winfo_exists():
+                    return
+                now = datetime.datetime.now().strftime("%H:%M:%S")
+                self._clock_label.config(text=f"🕐 {now}")
+                self.window.after(1000, _tick)
+            except Exception:
+                pass
+        _tick()
+
     def _nav_to(self, key):
         # Hide all pages
         for pg in self._pages.values():
@@ -209,7 +243,7 @@ class AdminPanel:
         pg = tk.Frame(self._content, bg=C['bg'])
 
         # System stats row
-        section_header(pg, "System Status")
+        section_header(pg, "System Status", C['info'])
         stats_row = tk.Frame(pg, bg=C['bg'])
         stats_row.pack(fill=tk.X, padx=16, pady=(0, 8))
 
@@ -221,14 +255,22 @@ class AdminPanel:
                                            is_bar=False)
 
         # Lockdown control
-        section_header(pg, "Lockdown Control")
-        ctrl = tk.Frame(pg, bg=C['card'])
+        section_header(pg, "Lockdown Control", C['danger'])
+        ctrl = tk.Frame(pg, bg=C['card'], bd=0,
+                        highlightthickness=1,
+                        highlightbackground=C['border'])
         ctrl.pack(fill=tk.X, padx=16, pady=(0, 8))
 
-        self._mode_label = tk.Label(ctrl, text="🔓  LOCKDOWN: INACTIVE",
+        mode_hdr = tk.Frame(ctrl, bg=C['card'])
+        mode_hdr.pack(fill=tk.X, padx=20, pady=(14, 4))
+        self._mode_dot = tk.Label(mode_hdr, text="⬤",
+                                   font=('Segoe UI', 14),
+                                   bg=C['card'], fg=C['success'])
+        self._mode_dot.pack(side=tk.LEFT, padx=(0, 8))
+        self._mode_label = tk.Label(mode_hdr, text="LOCKDOWN: INACTIVE",
                                      font=('Segoe UI', 15, 'bold'),
                                      bg=C['card'], fg=C['success'])
-        self._mode_label.pack(anchor=tk.W, padx=20, pady=(14, 4))
+        self._mode_label.pack(side=tk.LEFT)
 
         # Module indicators
         ind_row = tk.Frame(ctrl, bg=C['card'])
@@ -239,10 +281,13 @@ class AdminPanel:
                                    ('network',  '🌐', 'Network'),
                                    ('windows',  '🪟', 'Windows'),
                                    ('usb',     '💾', 'USB')]:
-            card = tk.Frame(ind_row, bg=C['surface'], padx=12, pady=8)
-            card.pack(side=tk.LEFT, padx=(0, 8))
+            card = tk.Frame(ind_row, bg=C['surface'],
+                            padx=12, pady=8,
+                            highlightthickness=1,
+                            highlightbackground=C['border'])
+            card.pack(side=tk.LEFT, padx=(0, 6))
             lbl = tk.Label(card, text=f"⬤  {icon} {label}",
-                           font=('Segoe UI', 9), bg=C['surface'],
+                           font=('Segoe UI', 9, 'bold'), bg=C['surface'],
                            fg=C['text_dim'])
             lbl.pack()
             self._ind[key] = lbl
@@ -296,31 +341,42 @@ class AdminPanel:
         return pg
 
     def _stat_card(self, parent, label, color, is_bar=True):
-        f = tk.Frame(parent, bg=C['surface_alt'], padx=14, pady=10)
-        f.pack(side=tk.LEFT, padx=(0, 8), pady=4)
+        outer = tk.Frame(parent, bg=color, padx=1, pady=0)
+        outer.pack(side=tk.LEFT, padx=(0, 8), pady=4)
+        f = tk.Frame(outer, bg=C['surface_alt'], padx=14, pady=10)
+        f.pack(fill=tk.BOTH)
         tk.Label(f, text=label, font=('Segoe UI', 8, 'bold'),
                  bg=C['surface_alt'], fg=C['text_dim']).pack(anchor=tk.W)
         if is_bar:
-            val_lbl = tk.Label(f, text="0%", font=('Segoe UI', 16, 'bold'),
+            val_lbl = tk.Label(f, text="0%", font=('Segoe UI', 18, 'bold'),
                                 bg=C['surface_alt'], fg=color)
             val_lbl.pack(anchor=tk.W)
-            canvas = tk.Canvas(f, bg=C['bg'], height=6, width=120,
+            canvas = tk.Canvas(f, bg=C['border'], height=6, width=130,
                                 highlightthickness=0)
-            canvas.pack(anchor=tk.W, pady=(4, 0))
+            canvas.pack(anchor=tk.W, pady=(6, 0))
             bar = canvas.create_rectangle(0, 0, 0, 6, fill=color, outline='')
             return {'label': val_lbl, 'canvas': canvas, 'bar': bar,
-                    'color': color}
+                    'color': color, 'width': 130}
         else:
             val_lbl = tk.Label(f, text="–",
-                                font=('Segoe UI', 16, 'bold'),
+                                font=('Segoe UI', 18, 'bold'),
                                 bg=C['surface_alt'], fg=color)
             val_lbl.pack(anchor=tk.W)
             return {'label': val_lbl}
 
     def _update_bar(self, bar_info, pct):
-        w = 120
+        w = bar_info.get('width', 130)
         bar_info['label'].config(text=f"{pct:.0f}%")
         bar_info['canvas'].coords(bar_info['bar'], 0, 0, int(w * pct / 100), 6)
+        # Shift color based on load
+        c = bar_info['color']
+        if 'canvas' in bar_info:
+            if pct > 85:
+                bar_info['canvas'].itemconfig(bar_info['bar'], fill=C['danger'])
+            elif pct > 60:
+                bar_info['canvas'].itemconfig(bar_info['bar'], fill=C['warning'])
+            else:
+                bar_info['canvas'].itemconfig(bar_info['bar'], fill=c)
 
     # ── Page: Live Monitor ───────────────────────────────────────
     def _build_monitor(self):
@@ -655,12 +711,12 @@ class AdminPanel:
     def _refresh_status(self):
         info = self.sec.get_system_info()
         if self.sec.is_exam_mode:
-            self._mode_label.config(text='🔒  LOCKDOWN: ACTIVE',
-                                     fg=C['danger'])
+            self._mode_label.config(text='LOCKDOWN: ACTIVE', fg=C['danger'])
+            self._mode_dot.config(fg=C['danger'])
             self._status_badge.config(text='⬤  LOCKED', fg=C['danger'])
         else:
-            self._mode_label.config(text='🔓  LOCKDOWN: INACTIVE',
-                                     fg=C['success'])
+            self._mode_label.config(text='LOCKDOWN: INACTIVE', fg=C['success'])
+            self._mode_dot.config(fg=C['success'])
             self._status_badge.config(text='⬤  STANDBY', fg=C['text_dim'])
 
         # CPU/RAM bars
@@ -678,12 +734,17 @@ class AdminPanel:
 
         # Indicators
         map_ = [('keyboard', 'hooks_active'), ('mouse', 'mouse_blocking'),
-                ('network', 'internet_blocked'), ('windows', 'window_protection')]
+                ('network', 'internet_blocked'), ('windows', 'window_protection'),
+                ('usb', 'usb_blocking')]
         for key, syskey in map_:
             active = info.get(syskey, False)
-            lbl_text = self._ind[key].cget('text').split(' ', 1)[1]
+            # Extract icon+label from existing text
+            existing = self._ind[key].cget('text')
+            # Label always = last word after first space-separated icon
+            parts = existing.split('  ', 1)
+            suffix = parts[1] if len(parts) > 1 else existing
             self._ind[key].config(
-                text=f"🟢  {lbl_text}" if active else f"⬤  {lbl_text}",
+                text=f"🟢  {suffix}" if active else f"⬤  {suffix}",
                 fg=C['success'] if active else C['text_dim'])
 
         # Threat
@@ -714,15 +775,37 @@ class AdminPanel:
             t = tk.Toplevel(self.window)
             t.overrideredirect(True)
             t.attributes('-topmost', True)
-            t.configure(bg=color)
+            t.configure(bg=C['surface'])
             sw = t.winfo_screenwidth()
             sh = t.winfo_screenheight()
-            w, h = 320, 48
-            t.geometry(f'{w}x{h}+{sw - w - 20}+{sh - h - 60}')
-            tk.Label(t, text=msg, font=('Segoe UI', 11, 'bold'),
-                     bg=color, fg='#0a0a0a', padx=16).pack(
-                expand=True, fill=tk.BOTH)
-            t.after(2800, t.destroy)
+            w, h = 360, 56
+            # Start off-screen below, then slide up
+            start_y = sh
+            end_y = sh - h - 60
+            t.geometry(f'{w}x{h}+{sw - w - 20}+{start_y}')
+
+            # Left color stripe
+            stripe = tk.Frame(t, bg=color, width=5)
+            stripe.pack(side=tk.LEFT, fill=tk.Y)
+            inner = tk.Frame(t, bg=C['surface'], padx=12, pady=4)
+            inner.pack(fill=tk.BOTH, expand=True)
+            tk.Label(inner, text=msg, font=('Segoe UI', 11, 'bold'),
+                     bg=C['surface'], fg=C['text'], anchor=tk.W,
+                     justify=tk.LEFT).pack(fill=tk.BOTH, expand=True)
+            ts = datetime.datetime.now().strftime("%H:%M:%S")
+            tk.Label(inner, text=ts, font=('Consolas', 8),
+                     bg=C['surface'], fg=C['text_dim'], anchor=tk.W).pack(anchor=tk.W)
+
+            # Slide up animation
+            def _slide(y):
+                if not t.winfo_exists():
+                    return
+                if y > end_y:
+                    t.geometry(f'{w}x{h}+{sw - w - 20}+{y}')
+                    t.after(12, _slide, y - 8)
+            _slide(start_y)
+
+            t.after(3500, lambda: t.destroy() if t.winfo_exists() else None)
         except Exception:
             pass
 
