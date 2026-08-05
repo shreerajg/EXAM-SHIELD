@@ -86,25 +86,25 @@ class USBManager:
 
     def _run_usb_command(self, action):
         try:
+            reg_val = 4 if action == 'disable' else 3
+            cmdlet = "Disable-PnpDevice" if action == 'disable' else "Enable-PnpDevice"
+            
             ps_script = f'''
-$devices = Get-PnpDevice -Class USB -Status OK | Where-Object {{$_.FriendlyName -match "USB|Mass|Storage"}}
+# Modify USBSTOR registry key to prevent new mass storage devices from mounting
+Set-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR" -Name "Start" -Value {reg_val} -ErrorAction SilentlyContinue
+
+# Find and disable/enable existing USB Mass Storage devices
+$devices = Get-PnpDevice -Class USB | Where-Object {{$_.FriendlyName -match "Mass|Storage"}}
 foreach ($dev in $devices) {{
-    if ("{action}" -eq "disable") {{
-        Set-PnpDevice -InstanceName $dev.InstanceName -Confirm:$false -ErrorAction SilentlyContinue
-    }}
+    {cmdlet} -InstanceName $dev.InstanceName -Confirm:$false -ErrorAction SilentlyContinue
 }}
 '''
             subprocess.run(
                 ['powershell', '-Command', ps_script],
-                capture_output=True, timeout=10
+                capture_output=True, timeout=15
             )
-            
-            subprocess.run(
-                ['diskpart', '/s', f'C:\\\\temp_usb_{action}.txt'],
-                capture_output=True, timeout=5
-            )
-        except Exception:
-            pass
+        except Exception as e:
+            self.log.error("USB_CMD", f"Failed to execute USB command: {e}")
     
     def _monitor_loop(self):
         try:
