@@ -5,6 +5,7 @@ Sidebar-based dark control centre.
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, simpledialog, filedialog
 import threading, time, json, datetime, hashlib, keyboard
+from typing import Optional
 from pynput import mouse as pynput_mouse
 from src.config import Config
 from src.logger import ExamShieldLogger
@@ -80,7 +81,7 @@ class AdminPanel:
         # Feature managers
         self.profile_manager = ProfileManager(db_manager)
         self.profile_manager.ensure_defaults()
-        self._exam_timer: ExamTimer | None = None
+        self._exam_timer: Optional[ExamTimer] = None
         self._active_profile_name = ""
 
         # Build window
