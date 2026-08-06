@@ -1009,6 +1009,8 @@ class AdminPanel:
             self._stop_btn.config(state=tk.NORMAL)
             self._refresh_status()
             self._toast("🔒 Lockdown ACTIVE", C['danger'])
+            # H6: pin admin panel on top, block minimize
+            self._enforce_topmost()
 
             # Start floating timer if requested
             if mins > 0:
@@ -1071,6 +1073,8 @@ class AdminPanel:
         self._start_btn.config(state=tk.NORMAL)
         self._stop_btn.config(state=tk.DISABLED)
         self._refresh_status()
+        # Release window lock
+        self._release_topmost()
         # Show report notification
         if report_path:
             self._show_report_notification(report_path)
@@ -1111,6 +1115,55 @@ class AdminPanel:
                     text=str(val),
                     fg=C['danger'] if val > 0 else C['text_dim']
                 )
+        except Exception:
+            pass
+
+    # ── Topmost / Anti-Minimize Guard (H6) ─────────────────────────
+    def _enforce_topmost(self):
+        """Pin admin panel on top, strip minimize button, install iconify guard."""
+        try:
+            self.window.attributes('-topmost', True)
+            self.window.deiconify()
+            self.window.lift()
+            # Override close-button to show warning instead of minimizing
+            self.window.protocol('WM_DELETE_WINDOW', self._on_close_locked)
+            # Bind iconify (Win+D, taskbar click) to immediately restore
+            self.window.bind('<Unmap>', self._on_unmap_locked)
+        except Exception:
+            pass
+
+    def _release_topmost(self):
+        """Restore normal window behaviour after lockdown ends."""
+        try:
+            self.window.attributes('-topmost', False)
+            self.window.protocol('WM_DELETE_WINDOW', self._on_close)
+            self.window.unbind('<Unmap>')
+        except Exception:
+            pass
+
+    def _on_close_locked(self):
+        """Replaces WM_DELETE_WINDOW during lockdown."""
+        import tkinter.messagebox as mb
+        mb.showwarning(
+            '🔒 Access Denied',
+            'The admin panel cannot be closed during lockdown.\n\n'
+            'End the exam session first.',
+            parent=self.window
+        )
+        # Re-assert topmost in case it was lost
+        try:
+            self.window.attributes('-topmost', True)
+            self.window.deiconify()
+            self.window.lift()
+        except Exception:
+            pass
+
+    def _on_unmap_locked(self, event=None):
+        """Fires when window is minimized/hidden during lockdown — restore it."""
+        try:
+            if self.sec.is_exam_mode:
+                self.window.after(50, self.window.deiconify)
+                self.window.after(60, self.window.lift)
         except Exception:
             pass
 
@@ -1705,6 +1758,10 @@ class AdminPanel:
         dlg.geometry(f'{w}x{h}+{x}+{y}')
 
     def _on_close(self):
+        """Normal (non-lockdown) close: offer to minimise to tray."""
+        if self.sec.is_exam_mode:
+            self._on_close_locked()
+            return
         if messagebox.askyesno('Confirm', 'Minimise to system tray?',
                                 parent=self.window):
             self.window.withdraw()
