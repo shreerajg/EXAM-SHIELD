@@ -1,5 +1,5 @@
 """
-ExamShield v1.0 — Admin Panel
+ExamShield v1.1.0 — Admin Panel
 Sidebar-based dark control centre.
 """
 import tkinter as tk
@@ -8,6 +8,8 @@ import threading, time, json, datetime, hashlib, keyboard
 from pynput import mouse as pynput_mouse
 from src.config import Config
 from src.logger import ExamShieldLogger
+from src.managers.profile_manager import ProfileManager
+from src.ui.exam_timer import ExamTimer
 
 C = Config.COLORS
 
@@ -74,6 +76,12 @@ class AdminPanel:
         self._detected_key = None
         self._detected_mouse = None
         self._toast_queue = []
+
+        # Feature managers
+        self.profile_manager = ProfileManager(db_manager)
+        self.profile_manager.ensure_defaults()
+        self._exam_timer: ExamTimer | None = None
+        self._active_profile_name = ""
 
         # Build window
         self.window = tk.Toplevel()
@@ -171,6 +179,7 @@ class AdminPanel:
         nav_items = [
             ('dashboard', '⚡', 'Dashboard'),
             ('monitor',   '📊', 'Live Monitor'),
+            ('profiles',  '🏷️',  'Profiles'),
             ('settings',  '⚙️',  'Settings'),
             ('logs',      '📋', 'Logs'),
         ]
@@ -203,6 +212,7 @@ class AdminPanel:
         self._pages = {}
         self._pages['dashboard'] = self._build_dashboard()
         self._pages['monitor']   = self._build_monitor()
+        self._pages['profiles']  = self._build_profiles()
         self._pages['settings']  = self._build_settings()
         self._pages['logs']      = self._build_logs()
 
@@ -313,6 +323,34 @@ class AdminPanel:
 
         styled_btn(btn_row, "🔄 Refresh",
                    self._refresh_status, bg=C['surface_alt']).pack(side=tk.RIGHT)
+
+        # ── Breach Counter ────────────────────────────────────────
+        section_header(pg, "Breach Counter (current session)", C['danger'])
+        breach_row = tk.Frame(pg, bg=C['bg'])
+        breach_row.pack(fill=tk.X, padx=16, pady=(0, 8))
+        self._breach_cards = {}
+        for key, icon, label in [
+            ('keyboard',  '⌨️', 'Keystrokes\nBlocked'),
+            ('processes', '🔍', 'Processes\nTerminated'),
+            ('network',   '🌐', 'Network\nBlocked'),
+            ('usb',       '💾', 'USB\nEvents'),
+            ('windows',   '🪟', 'Window\nAttempts'),
+        ]:
+            cf = tk.Frame(breach_row, bg=C['surface'],
+                          padx=14, pady=10,
+                          highlightthickness=1,
+                          highlightbackground=C['border'])
+            cf.pack(side=tk.LEFT, padx=(0, 6))
+            tk.Label(cf, text=icon, font=('Segoe UI', 14),
+                     bg=C['surface'], fg=C['warning']).pack()
+            count_lbl = tk.Label(cf, text='0',
+                                  font=('Segoe UI', 20, 'bold'),
+                                  bg=C['surface'], fg=C['danger'])
+            count_lbl.pack()
+            tk.Label(cf, text=label, font=('Segoe UI', 7),
+                     bg=C['surface'], fg=C['text_dim'],
+                     justify=tk.CENTER).pack()
+            self._breach_cards[key] = count_lbl
 
         # Threat detection
         section_header(pg, "Threat Detection", C['warning'])
@@ -599,16 +637,28 @@ class AdminPanel:
     def _show_lockdown_dialog(self):
         dlg = tk.Toplevel(self.window)
         dlg.title('🔒 Selective Lockdown')
-        dlg.geometry('500x580')
+        dlg.geometry('520x720')
         dlg.configure(bg=C['bg'])
         dlg.transient(self.window)
         dlg.grab_set()
-        self._center_dialog(dlg, 500, 580)
+        self._center_dialog(dlg, 520, 720)
 
-        tk.Label(dlg, text='Select Security Modules',
+        tk.Label(dlg, text='Configure & Start Lockdown',
                  font=('Segoe UI', 16, 'bold'), bg=C['bg'],
-                 fg=C['primary']).pack(pady=(24, 16))
+                 fg=C['primary']).pack(pady=(20, 4))
 
+        # ── Profile quick-load ────────────────────────────────────
+        pf = tk.Frame(dlg, bg=C['surface'], padx=14, pady=10)
+        pf.pack(fill=tk.X, padx=32, pady=(0, 8))
+        tk.Label(pf, text='📂  Load Profile:', font=('Segoe UI', 9, 'bold'),
+                 bg=C['surface'], fg=C['text_dim']).pack(side=tk.LEFT)
+        profiles = ['(custom)'] + self.profile_manager.profile_names()
+        prof_var = tk.StringVar(value='(custom)')
+        prof_cb = ttk.Combobox(pf, textvariable=prof_var,
+                               values=profiles, state='readonly', width=22)
+        prof_cb.pack(side=tk.LEFT, padx=8)
+
+        # Module checkboxes
         modules = [
             ('keyboard',  '⌨', 'Keyboard Blocking',
              'Block Alt+Tab, Ctrl+Alt+Del, etc.'),
@@ -620,13 +670,13 @@ class AdminPanel:
              'Prevent closing/minimising windows'),
             ('processes', '🔍', 'Process Monitor',
              'Auto-terminate suspicious processes'),
-            ('usb',      '💾', 'USB Storage Lock',
+            ('usb',       '💾', 'USB Storage Lock',
              'Block USB mass storage devices'),
         ]
-        sel_vars = {}
+        sel_vars: dict[str, tk.BooleanVar] = {}
         for key, icon, title, desc in modules:
             card = tk.Frame(dlg, bg=C['card'])
-            card.pack(fill=tk.X, padx=32, pady=5)
+            card.pack(fill=tk.X, padx=32, pady=4)
             v = tk.BooleanVar(value=True)
             sel_vars[key] = v
             top = tk.Frame(card, bg=C['card'])
@@ -640,10 +690,59 @@ class AdminPanel:
             tk.Label(card, text=f"      {desc}",
                      font=('Segoe UI', 9), bg=C['card'],
                      fg=C['text_dim']).pack(anchor=tk.W, padx=14,
-                                            pady=(0, 10))
+                                            pady=(0, 8))
+
+        # ── Timer ────────────────────────────────────────────────
+        tf = tk.Frame(dlg, bg=C['surface_alt'], padx=14, pady=10)
+        tf.pack(fill=tk.X, padx=32, pady=8)
+        tk.Label(tf, text='⏱  Exam Duration (minutes, 0 = no timer):',
+                 font=('Segoe UI', 9, 'bold'),
+                 bg=C['surface_alt'], fg=C['text']).pack(anchor=tk.W)
+        timer_var = tk.StringVar(value='0')
+        timer_entry = tk.Entry(tf, textvariable=timer_var,
+                               font=('Segoe UI', 11),
+                               bg=C['input_bg'], fg=C['text'],
+                               width=6, relief=tk.FLAT,
+                               insertbackground=C['primary'])
+        timer_entry.pack(anchor=tk.W, pady=(4, 0))
+
+        # ── Screenshots note ──────────────────────────────────────
+        from src.managers.screenshot_manager import PILLOW_AVAILABLE
+        ss_color = C['success'] if PILLOW_AVAILABLE else C['text_dim']
+        ss_text  = ("📸  Screenshot monitoring: ON (saves every "
+                    f"{Config.SCREENSHOT_INTERVAL_SEC}s + on violations)")\
+                   if PILLOW_AVAILABLE else \
+                   "📸  Screenshot monitoring: DISABLED (install Pillow)"
+        tk.Label(dlg, text=ss_text, font=('Segoe UI', 8),
+                 bg=C['bg'], fg=ss_color).pack(padx=32, anchor=tk.W)
+
+        # ── Apply profile to controls ─────────────────────────────
+        def _apply_profile(event=None):
+            name = prof_var.get()
+            if name == '(custom)':
+                return
+            p = self.profile_manager.load_profile(name)
+            if not p:
+                return
+            mods = p.get('modules', {})
+            for k, var in sel_vars.items():
+                var.set(mods.get(k, True))
+            timer_var.set(str(p.get('timer_minutes', 0)))
+            # Apply blocked keys/websites
+            bk = p.get('blocked_keys')
+            if bk is not None:
+                self.sec.blocked_keys = bk
+                if hasattr(self, '_keys_lb'):
+                    self._load_keys_list()
+            bw = p.get('blocked_websites')
+            if bw is not None:
+                Config.BLOCKED_WEBSITES = bw
+                if hasattr(self, '_web_lb'):
+                    self._load_website_list()
+        prof_cb.bind('<<ComboboxSelected>>', _apply_profile)
 
         btn_f = tk.Frame(dlg, bg=C['bg'])
-        btn_f.pack(fill=tk.X, padx=32, pady=20)
+        btn_f.pack(fill=tk.X, padx=32, pady=14)
 
         def start():
             opts = {k: v.get() for k, v in sel_vars.items()}
@@ -651,16 +750,48 @@ class AdminPanel:
                 messagebox.showwarning('Empty',
                     'Select at least one module!', parent=dlg)
                 return
+            try:
+                mins = int(timer_var.get())
+                if mins < 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror('Invalid Timer',
+                    'Enter a non-negative integer for minutes.',
+                    parent=dlg)
+                return
+
             names = [k.title() for k, v in opts.items() if v]
-            if messagebox.askyesno('Confirm',
-                    'Start lockdown with:\n\n' +
-                    '\n'.join(f'  ✓ {n}' for n in names), parent=dlg):
-                dlg.destroy()
-                self.sec.start_exam_mode(opts)
-                self._start_btn.config(state=tk.DISABLED)
-                self._stop_btn.config(state=tk.NORMAL)
-                self._refresh_status()
-                self._toast("🔒 Lockdown ACTIVE", C['danger'])
+            profile_name = prof_var.get()
+            if profile_name == '(custom)':
+                profile_name = ''
+            confirm_text = ('Start lockdown with:\n\n' +
+                            '\n'.join(f'  ✓ {n}' for n in names))
+            if mins:
+                confirm_text += f'\n\n  ⏱  Timer: {mins} minutes'
+            if not messagebox.askyesno('Confirm', confirm_text, parent=dlg):
+                return
+
+            dlg.destroy()
+            self._active_profile_name = profile_name
+            self.sec.start_exam_mode(opts,
+                                     profile_name=profile_name,
+                                     timer_minutes=mins)
+            self._start_btn.config(state=tk.DISABLED)
+            self._stop_btn.config(state=tk.NORMAL)
+            self._refresh_status()
+            self._toast("🔒 Lockdown ACTIVE", C['danger'])
+
+            # Start floating timer if requested
+            if mins > 0:
+                if self._exam_timer:
+                    self._exam_timer.stop()
+                self._exam_timer = ExamTimer(
+                    self.window,
+                    duration_minutes=mins,
+                    on_expire=self._on_timer_expire,
+                    on_stop=None,
+                )
+                self._exam_timer.start()
 
         styled_btn(btn_f, '🚀  START LOCKDOWN', start,
                    bg=C['success'], fg='#0a0a0a'
@@ -677,10 +808,7 @@ class AdminPanel:
             return
         h = hashlib.sha256(pw.encode()).hexdigest()
         if self.db.verify_admin(self.admin_user, h):
-            self.sec.stop_exam_mode()
-            self._start_btn.config(state=tk.NORMAL)
-            self._stop_btn.config(state=tk.DISABLED)
-            self._refresh_status()
+            self._do_stop_lockdown()
             self._toast("🔓 Lockdown disabled", C['success'])
         else:
             messagebox.showerror('Denied', 'Wrong password!',
@@ -698,18 +826,69 @@ class AdminPanel:
             return
         h = hashlib.sha256(pw.encode()).hexdigest()
         if self.db.verify_admin(self.admin_user, h):
-            self.sec.stop_exam_mode()
-            self._start_btn.config(state=tk.NORMAL)
-            self._stop_btn.config(state=tk.DISABLED)
-            self._refresh_status()
+            self._do_stop_lockdown()
             self._toast("🚨 Emergency stop executed", C['warning'])
         else:
             messagebox.showerror('Denied', 'Wrong password!',
                                   parent=self.window)
 
+    def _do_stop_lockdown(self):
+        """Common teardown: stop timer, stop exam mode, show report."""
+        # Stop timer if running
+        if self._exam_timer:
+            self._exam_timer.stop()
+            self._exam_timer = None
+        report_path = self.sec.stop_exam_mode()
+        self._start_btn.config(state=tk.NORMAL)
+        self._stop_btn.config(state=tk.DISABLED)
+        self._refresh_status()
+        # Show report notification
+        if report_path:
+            self._show_report_notification(report_path)
+
+    def _on_timer_expire(self):
+        """Called by ExamTimer when countdown hits zero."""
+        self.log.info("TIMER_EXPIRED", "Exam timer expired — auto-ending lockdown")
+        try:
+            self.window.after(3200, self._do_stop_lockdown)
+            self.window.after(3200, lambda: self._toast(
+                "⏱ Time's up — lockdown ended automatically", C['warning']
+            ))
+        except Exception:
+            pass
+
+    def _show_report_notification(self, report_path: str):
+        """Pop up a small dialog telling the admin the report was saved."""
+        try:
+            want = messagebox.askyesno(
+                '📋 Session Report Saved',
+                f'Session report saved:\n\n{report_path}\n\nOpen it now?',
+                parent=self.window
+            )
+            if want:
+                import subprocess
+                subprocess.Popen(['notepad.exe', report_path])
+        except Exception:
+            pass
+
+    # ── Breach Counter Update ────────────────────────────────────
+    def update_breach_counter(self):
+        """Refresh the breach counter cards on the dashboard."""
+        try:
+            counts = self.sec.breach_counts
+            for key, lbl in self._breach_cards.items():
+                val = counts.get(key, 0)
+                lbl.config(
+                    text=str(val),
+                    fg=C['danger'] if val > 0 else C['text_dim']
+                )
+        except Exception:
+            pass
+
     # ── Status Refresh ───────────────────────────────────────────
     def _refresh_status(self):
         info = self.sec.get_system_info()
+        self.update_breach_counter()
         if self.sec.is_exam_mode:
             self._mode_label.config(text='LOCKDOWN: ACTIVE', fg=C['danger'])
             self._mode_dot.config(fg=C['danger'])
