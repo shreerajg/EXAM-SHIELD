@@ -7,7 +7,7 @@ import os
 class Config:
     # ── Application ──────────────────────────────────────────────
     APP_NAME = "Exam Shield"
-    VERSION = "1.0.0"
+    VERSION = "1.1.0"
     BUILD = "stable"
 
     # ── Paths ────────────────────────────────────────────────────
@@ -15,6 +15,11 @@ class Config:
     DATABASE_NAME = "exam_shield.db"
     DATABASE_PATH = os.path.join(BASE_DIR, DATABASE_NAME)
     LOG_DIR = os.path.join(BASE_DIR, "logs")
+    SCREENSHOT_DIR = os.path.join(LOG_DIR, "screenshots")
+    REPORT_DIR = os.path.join(LOG_DIR, "reports")
+
+    # ── Screenshot Monitoring ─────────────────────────────────────
+    SCREENSHOT_INTERVAL_SEC = 60    # capture every N seconds during lockdown
 
     # ── Default Credentials ──────────────────────────────────────
     DEFAULT_ADMIN_USERNAME = "admin"
