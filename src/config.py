@@ -27,10 +27,22 @@ class Config:
 
     # ── Keyboard Blocking ────────────────────────────────────────
     BLOCKED_KEYS = [
-        'alt+tab', 'alt+f4', 'win+d', 'win+l', 'win+r',
-        'ctrl+alt+del', 'ctrl+shift+esc', 'f11', 'alt+space',
-        'win+tab', 'ctrl+alt+t', 'win+e', 'win+s',
-        'win+i', 'win+a', 'win+x', 'ctrl+esc',
+        # Alt combos
+        'alt+tab', 'alt+f4', 'alt+esc', 'alt+space', 'alt+enter',
+        # Ctrl combos
+        'ctrl+alt+del', 'ctrl+shift+esc', 'ctrl+esc',
+        'ctrl+w', 'ctrl+n', 'ctrl+f4', 'ctrl+shift+n', 'ctrl+shift+t',
+        # Win key combos
+        'win+d', 'win+l', 'win+r', 'win+e', 'win+s', 'win+i',
+        'win+a', 'win+x', 'win+tab', 'win+p', 'win+b', 'win+k',
+        'win+m', 'win+h', 'win+g', 'win+u', 'win+v',
+        # Win + taskbar number shortcuts (switch apps)
+        'win+1', 'win+2', 'win+3', 'win+4', 'win+5',
+        'win+6', 'win+7', 'win+8', 'win+9', 'win+0',
+        # Ctrl+Alt+Arrow (rotate screen)
+        'ctrl+alt+up', 'ctrl+alt+down', 'ctrl+alt+left', 'ctrl+alt+right',
+        # Function keys
+        'f11', 'f1',
     ]
 
     # ── Mouse Blocking ───────────────────────────────────────────
@@ -67,13 +79,33 @@ class Config:
 
     # ── Suspicious Processes ─────────────────────────────────────
     SUSPICIOUS_PROCESSES = [
+        # System escape tools
         'taskmgr.exe', 'cmd.exe', 'powershell.exe', 'pwsh.exe',
-        'regedit.exe', 'msconfig.exe', 'mmc.exe', 'devmgmt.msc',
-        'control.exe',
+        'regedit.exe', 'msconfig.exe', 'mmc.exe', 'control.exe',
+        # Process / system analysis
+        'procexp.exe', 'procexp64.exe', 'procmon.exe', 'procmon64.exe',
+        'autoruns.exe', 'autorunsc.exe', 'tcpview.exe',
+        # Debuggers / reverse-engineering
+        'x32dbg.exe', 'x64dbg.exe', 'ollydbg.exe', 'windbg.exe',
+        'ida64.exe', 'ida.exe', 'radare2.exe',
+        # Network bypass
+        'wireshark.exe', 'fiddler.exe', 'charles.exe', 'mitmproxy.exe',
+        'tor.exe', 'privoxy.exe', 'proxifier.exe',
+        # Remote access / screen share
+        'teamviewer.exe', 'anydesk.exe', 'vnc.exe', 'vncviewer.exe',
+        'ultraviewer.exe', 'radmin.exe', 'ammyy.exe',
+        # Communication / AI cheating
+        'discord.exe', 'slack.exe', 'zoom.exe', 'teams.exe',
+        'skype.exe', 'telegram.exe', 'whatsapp.exe',
+        # Dev environments
+        'code.exe', 'pycharm64.exe', 'idea64.exe', 'devenv.exe',
+        'notepad++.exe', 'sublime_text.exe', 'atom.exe',
+        # Browsers (standalone attempts outside allowed ones)
+        'tor browser.exe',
     ]
 
     # ── Process Monitor Interval (seconds) ───────────────────────
-    PROCESS_MONITOR_INTERVAL = 2
+    PROCESS_MONITOR_INTERVAL = 0.5   # seconds — tight enough to catch fast attempts
 
     # ── UI Palette ───────────────────────────────────────────────
     COLORS = {

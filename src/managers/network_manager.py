@@ -37,6 +37,7 @@ class NetworkManager:
         try:
             self._backup_hosts()
             self._write_blocked_hosts()
+            self._lock_hosts_file()          # H3: deny write access
             self._set_dns_loopback()
             self.is_blocked = True
             self._stop_event.clear()
@@ -54,6 +55,7 @@ class NetworkManager:
         self.is_blocked = False
         self._stop_event.set()
         try:
+            self._unlock_hosts_file()        # H3: restore write access first
             self._restore_hosts()
             self._restore_dns()
             self._flush_dns()
@@ -124,6 +126,35 @@ class NetworkManager:
         if platform.system().lower() == "windows":
             subprocess.run(['ipconfig', '/flushdns'], capture_output=True, text=True)
 
+    # ── File Permission Lock (H3) ─────────────────────────────────
+    def _lock_hosts_file(self):
+        """Remove write permission from hosts file for all non-SYSTEM users."""
+        try:
+            import subprocess
+            subprocess.run(
+                ['icacls', self.hosts_path,
+                 '/deny', 'Users:(W)',
+                 '/deny', 'Authenticated Users:(W)'],
+                capture_output=True, timeout=8
+            )
+            self.log.info("NET_HOSTS_LOCK", "Hosts file write-locked")
+        except Exception as e:
+            self.log.error("NET_HOSTS_LOCK", f"Lock failed: {e}")
+
+    def _unlock_hosts_file(self):
+        """Restore write permission to hosts file."""
+        try:
+            import subprocess
+            subprocess.run(
+                ['icacls', self.hosts_path,
+                 '/remove:d', 'Users',
+                 '/remove:d', 'Authenticated Users'],
+                capture_output=True, timeout=8
+            )
+            self.log.info("NET_HOSTS_UNLOCK", "Hosts file write-unlocked")
+        except Exception as e:
+            self.log.error("NET_HOSTS_UNLOCK", f"Unlock failed: {e}")
+
     # ── Guard Thread ─────────────────────────────────────────────
     def _guard_loop(self):
         """Re-apply hosts blocking if someone tampers with the file."""
@@ -132,11 +163,13 @@ class NetworkManager:
                 with open(self.hosts_path, 'r', encoding='utf-8', errors='replace') as f:
                     content = f.read()
                 if self._MARKER_START not in content:
+                    # File was tampered — re-lock and re-write
                     self._write_blocked_hosts()
+                    self._lock_hosts_file()
                     self.log.warning("NET_GUARD", "Re-applied tampered hosts block")
             except Exception:
                 pass
-            self._stop_event.wait(5)
+            self._stop_event.wait(2)   # 2 s instead of 5 s
 
     # ── Helpers ──────────────────────────────────────────────────
     def get_blocked_websites(self):

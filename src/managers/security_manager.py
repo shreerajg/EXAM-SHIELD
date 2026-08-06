@@ -13,6 +13,7 @@ from src.managers.window_manager import WindowManager
 from src.managers.usb_manager import USBManager
 from src.managers.screenshot_manager import ScreenshotManager
 from src.managers.report_manager import ReportManager
+from src.managers.watchdog_manager import WatchdogManager
 from src.logger import ExamShieldLogger
 
 
@@ -26,12 +27,13 @@ class SecurityManager:
         self.selective_blocking = Config.SELECTIVE_BLOCKING.copy()
 
         # Sub-managers
-        self.mouse_manager    = MouseManager(db_manager)
-        self.network_manager  = NetworkManager(db_manager)
-        self.window_manager   = WindowManager(db_manager)
-        self.usb_manager      = USBManager(db_manager)
+        self.mouse_manager      = MouseManager(db_manager)
+        self.network_manager    = NetworkManager(db_manager)
+        self.window_manager     = WindowManager(db_manager)
+        self.usb_manager        = USBManager(db_manager)
         self.screenshot_manager = ScreenshotManager(db_manager)
-        self.report_manager   = ReportManager(db_manager)
+        self.report_manager     = ReportManager(db_manager)
+        self.watchdog_manager   = WatchdogManager(db_manager)
 
         # Thread control
         self._proc_stop   = threading.Event()
@@ -101,6 +103,9 @@ class SecurityManager:
             timer_minutes=timer_minutes,
         )
 
+        # Launch watchdog (must be last — it protects everything above)
+        self.watchdog_manager.start()
+
         self.log.info("EXAM_MODE_START",
                       f"Active modules: {', '.join(active)}"
                       + (f" | Profile: {profile_name}" if profile_name else "")
@@ -121,6 +126,9 @@ class SecurityManager:
         self.network_manager.stop_blocking()
         self.usb_manager.stop_blocking()
         self.window_manager.stop_window_protection()
+
+        # Stop watchdog FIRST so it doesn't fight clean-up
+        self.watchdog_manager.stop()
 
         # Generate session report
         report_path = self.report_manager.end_session(
