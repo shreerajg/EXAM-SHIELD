@@ -7,6 +7,7 @@ import ctypes.wintypes as wintypes
 import threading
 import time
 import subprocess
+import winreg
 from src.logger import ExamShieldLogger
 from src.config import Config
 
@@ -32,6 +33,7 @@ class USBManager:
         self._lock = threading.Lock()
         self._monitor_thread = None
         self._stop_evt = threading.Event()
+        self._reg_guard_thread = None      # H4: registry guard
         self._window = None
         self._orig_device_state = {}
 
@@ -43,12 +45,18 @@ class USBManager:
         
         self._stop_evt.clear()
         self._enumerate_usb_devices()
-        
+
         self._monitor_thread = threading.Thread(
             target=self._monitor_loop, daemon=True, name="USBMonitor"
         )
         self._monitor_thread.start()
-        
+
+        # H4: registry guard thread
+        self._reg_guard_thread = threading.Thread(
+            target=self._registry_guard_loop, daemon=True, name="USBRegGuard"
+        )
+        self._reg_guard_thread.start()
+
         self._block_all_usb_storage()
         self.log.info("USB_BLOCKING_START", "USB storage devices blocked")
 
@@ -83,6 +91,26 @@ class USBManager:
 
     def _unblock_all_usb_storage(self):
         self._run_usb_command('enable')
+
+    # ── Registry Guard (H4) ────────────────────────────────────────
+    def _registry_guard_loop(self):
+        """Check every 3 s that USBSTOR\\Start == 4 (disabled)."""
+        reg_path = r"SYSTEM\CurrentControlSet\Services\USBSTOR"
+        while self.is_active and not self._stop_evt.is_set():
+            try:
+                key = winreg.OpenKey(
+                    winreg.HKEY_LOCAL_MACHINE, reg_path,
+                    0, winreg.KEY_SET_VALUE | winreg.KEY_QUERY_VALUE
+                )
+                val, _ = winreg.QueryValueEx(key, "Start")
+                if val != 4:
+                    winreg.SetValueEx(key, "Start", 0, winreg.REG_DWORD, 4)
+                    self.log.warning("USB_REG_GUARD",
+                                     "Re-applied USBSTOR registry block")
+                winreg.CloseKey(key)
+            except Exception:
+                pass
+            self._stop_evt.wait(3)
 
     def _run_usb_command(self, action):
         try:

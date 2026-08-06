@@ -43,22 +43,27 @@ class SystemTray:
 
     # ── Menu ─────────────────────────────────────────────────────
     def _menu(self):
+        locked = self.security_manager.is_exam_mode
         items = [
             pystray.MenuItem("🛡️  Exam Shield", self._show_panel,
                              default=True),
             pystray.MenuItem("Open Admin Panel", self._show_panel),
             pystray.Menu.SEPARATOR,
         ]
-        if self.security_manager.is_exam_mode:
-            items.append(
-                pystray.MenuItem("🔒 Stop Lockdown", self._stop_lockdown))
+
+        if not locked:
+            # Only show dangerous actions when NOT in lockdown
+            items += [
+                pystray.MenuItem("🔓 Start Lockdown", self._start_lockdown),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Exit (Admin)", self._exit),
+            ]
         else:
+            # During lockdown: only a status label, no escape options
             items.append(
-                pystray.MenuItem("🔓 Start Lockdown", self._start_lockdown))
-        items += [
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Exit (Admin)", self._exit),
-        ]
+                pystray.MenuItem("🔒 LOCKDOWN ACTIVE", None, enabled=False)
+            )
+
         return pystray.Menu(*items)
 
     # ── Actions ──────────────────────────────────────────────────
