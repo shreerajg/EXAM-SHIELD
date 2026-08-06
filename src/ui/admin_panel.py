@@ -440,6 +440,234 @@ class AdminPanel:
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
         return pg
 
+    # ── Page: Profiles ────────────────────────────────────────────
+    def _build_profiles(self):
+        """Named exam profile preset manager page."""
+        pg = tk.Frame(self._content, bg=C['bg'])
+        section_header(pg, "Exam Profile Presets", C['accent'])
+
+        # ── Toolbar ─────────────────────────────────────────────
+        tb = tk.Frame(pg, bg=C['bg'])
+        tb.pack(fill=tk.X, padx=16, pady=(0, 8))
+
+        styled_btn(tb, '➕  New Profile',  self._new_profile_dialog,
+                   bg=C['primary'], fg='#0a0a0a').pack(side=tk.LEFT, padx=(0, 6))
+        styled_btn(tb, '✏️  Edit',         self._edit_profile_dialog,
+                   bg=C['surface']).pack(side=tk.LEFT, padx=(0, 6))
+        styled_btn(tb, '🗑  Delete',        self._delete_profile,
+                   bg=C['danger'], fg='white').pack(side=tk.LEFT, padx=(0, 6))
+        styled_btn(tb, '💾  Save Current', self._save_current_as_profile,
+                   bg=C['surface']).pack(side=tk.LEFT, padx=(0, 6))
+        styled_btn(tb, '🔄 Refresh',       self._refresh_profiles,
+                   bg=C['surface_alt']).pack(side=tk.RIGHT)
+
+        # ── Profile list ─────────────────────────────────────────
+        list_frame = tk.Frame(pg, bg=C['bg'])
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 8))
+
+        cols = ('Name', 'Description', 'Modules', 'Timer', 'Saved')
+        self._prof_tree = ttk.Treeview(
+            list_frame, columns=cols, show='headings', height=10
+        )
+        for col, width in zip(cols, [160, 260, 200, 60, 130]):
+            self._prof_tree.heading(col, text=col)
+            self._prof_tree.column(col, width=width, minwidth=50)
+
+        vsb2 = ttk.Scrollbar(list_frame, orient=tk.VERTICAL,
+                              command=self._prof_tree.yview)
+        self._prof_tree.configure(yscrollcommand=vsb2.set)
+        self._prof_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb2.pack(side=tk.RIGHT, fill=tk.Y)
+        self._prof_tree.bind('<Double-1>', lambda e: self._edit_profile_dialog())
+
+        # ── Detail card ──────────────────────────────────────────
+        section_header(pg, "Profile Details", C['info'])
+        self._prof_detail = tk.Label(
+            pg, text='Select a profile to see details.',
+            font=('Consolas', 9), bg=C['bg'], fg=C['text_dim'],
+            justify=tk.LEFT, anchor=tk.W, padx=16
+        )
+        self._prof_detail.pack(fill=tk.X, padx=16, pady=4)
+
+        self._prof_tree.bind('<<TreeviewSelect>>', self._on_profile_select)
+
+        # Populate
+        self._refresh_profiles()
+        return pg
+
+    def _refresh_profiles(self):
+        """Reload all profiles into the treeview."""
+        try:
+            for item in self._prof_tree.get_children():
+                self._prof_tree.delete(item)
+            for p in self.profile_manager.list_profiles():
+                name  = p.get('name', '')
+                desc  = p.get('description', '')
+                mods  = p.get('modules', {})
+                mod_str = ', '.join(k for k, v in mods.items() if v) or 'none'
+                timer = str(p.get('timer_minutes', 0)) + ' min'
+                saved = p.get('saved_at', '')[:16]
+                self._prof_tree.insert('', tk.END, iid=name,
+                                        values=(name, desc, mod_str, timer, saved))
+        except Exception:
+            pass
+
+    def _on_profile_select(self, event=None):
+        sel = self._prof_tree.selection()
+        if not sel:
+            return
+        name = sel[0]
+        p = self.profile_manager.load_profile(name)
+        if not p:
+            return
+        mods  = p.get('modules', {})
+        mod_lines = '\n  '.join(
+            f"{'✓' if v else '✗'}  {k.capitalize()}"
+            for k, v in mods.items()
+        )
+        detail = (
+            f"Profile : {p['name']}\n"
+            f"Saved   : {p.get('saved_at', '')[:19]}\n"
+            f"Timer   : {p.get('timer_minutes', 0)} minutes\n"
+            f"Modules :\n  {mod_lines}"
+        )
+        self._prof_detail.config(text=detail)
+
+    def _new_profile_dialog(self):
+        self._profile_form_dialog(edit_name=None)
+
+    def _edit_profile_dialog(self):
+        sel = self._prof_tree.selection()
+        name = sel[0] if sel else None
+        self._profile_form_dialog(edit_name=name)
+
+    def _profile_form_dialog(self, edit_name=None):
+        """Dialog for creating/editing a profile."""
+        existing = None
+        if edit_name:
+            existing = self.profile_manager.load_profile(edit_name)
+
+        dlg = tk.Toplevel(self.window)
+        dlg.title('🏷️  ' + ('Edit Profile' if existing else 'New Profile'))
+        dlg.geometry('500x560')
+        dlg.configure(bg=C['bg'])
+        dlg.transient(self.window)
+        dlg.grab_set()
+        self._center_dialog(dlg, 500, 560)
+
+        tk.Label(dlg, text='Edit Profile' if existing else 'New Profile',
+                 font=('Segoe UI', 15, 'bold'), bg=C['bg'],
+                 fg=C['primary']).pack(pady=(18, 10))
+
+        # Name
+        nf = tk.Frame(dlg, bg=C['bg'])
+        nf.pack(fill=tk.X, padx=28, pady=4)
+        tk.Label(nf, text='Name:', font=('Segoe UI', 9, 'bold'),
+                 bg=C['bg'], fg=C['text_dim']).pack(anchor=tk.W)
+        name_var = tk.StringVar(value=existing['name'] if existing else '')
+        tk.Entry(nf, textvariable=name_var, font=('Segoe UI', 11),
+                 bg=C['input_bg'], fg=C['text'], relief=tk.FLAT,
+                 insertbackground=C['primary'],
+                 highlightthickness=1,
+                 highlightbackground=C['border']).pack(fill=tk.X, ipady=5)
+
+        # Description
+        df = tk.Frame(dlg, bg=C['bg'])
+        df.pack(fill=tk.X, padx=28, pady=4)
+        tk.Label(df, text='Description:', font=('Segoe UI', 9, 'bold'),
+                 bg=C['bg'], fg=C['text_dim']).pack(anchor=tk.W)
+        desc_var = tk.StringVar(value=existing.get('description', '') if existing else '')
+        tk.Entry(df, textvariable=desc_var, font=('Segoe UI', 11),
+                 bg=C['input_bg'], fg=C['text'], relief=tk.FLAT,
+                 insertbackground=C['primary'],
+                 highlightthickness=1,
+                 highlightbackground=C['border']).pack(fill=tk.X, ipady=5)
+
+        # Modules
+        mf = tk.LabelFrame(dlg, text='Modules', bg=C['bg'],
+                            fg=C['primary'], font=('Segoe UI', 9, 'bold'),
+                            padx=8, pady=6)
+        mf.pack(fill=tk.X, padx=28, pady=8)
+        existing_mods = (existing or {}).get('modules', {k: True for k in Config.SELECTIVE_BLOCKING})
+        mod_vars: dict[str, tk.BooleanVar] = {}
+        for key in Config.SELECTIVE_BLOCKING:
+            v = tk.BooleanVar(value=existing_mods.get(key, True))
+            mod_vars[key] = v
+            tk.Checkbutton(mf, text=f'  {key.capitalize()}', variable=v,
+                           bg=C['bg'], fg=C['text'],
+                           selectcolor=C['input_bg'],
+                           activebackground=C['bg']).pack(anchor=tk.W)
+
+        # Timer
+        tmf = tk.Frame(dlg, bg=C['bg'])
+        tmf.pack(fill=tk.X, padx=28, pady=4)
+        tk.Label(tmf, text='Timer (minutes, 0 = none):',
+                 font=('Segoe UI', 9, 'bold'), bg=C['bg'],
+                 fg=C['text_dim']).pack(anchor=tk.W)
+        timer_var = tk.StringVar(
+            value=str(existing.get('timer_minutes', 0)) if existing else '0'
+        )
+        tk.Entry(tmf, textvariable=timer_var, font=('Segoe UI', 11),
+                 bg=C['input_bg'], fg=C['text'], width=8,
+                 relief=tk.FLAT, insertbackground=C['primary']).pack(anchor=tk.W, ipady=4)
+
+        def save():
+            nm = name_var.get().strip()
+            if not nm:
+                messagebox.showerror('Error', 'Name cannot be empty.', parent=dlg)
+                return
+            try:
+                mins = int(timer_var.get())
+            except ValueError:
+                mins = 0
+            data = {
+                'description': desc_var.get().strip(),
+                'modules': {k: v.get() for k, v in mod_vars.items()},
+                'blocked_keys': self.sec.blocked_keys[:],
+                'blocked_websites': Config.BLOCKED_WEBSITES[:],
+                'timer_minutes': mins,
+            }
+            # If name changed, delete old entry
+            if edit_name and edit_name != nm:
+                self.profile_manager.delete_profile(edit_name)
+            self.profile_manager.save_profile(nm, data)
+            self._refresh_profiles()
+            self._toast(f"💾 Profile '{nm}' saved", C['success'])
+            dlg.destroy()
+
+        styled_btn(dlg, '💾  Save Profile', save,
+                   bg=C['primary'], fg='#0a0a0a').pack(pady=14)
+
+    def _delete_profile(self):
+        sel = self._prof_tree.selection()
+        if not sel:
+            return
+        name = sel[0]
+        if messagebox.askyesno('Delete', f"Delete profile '{name}'?",
+                                parent=self.window):
+            self.profile_manager.delete_profile(name)
+            self._refresh_profiles()
+            self._toast(f"🗑 Profile '{name}' deleted", C['warning'])
+
+    def _save_current_as_profile(self):
+        """Snapshot the current session settings as a new profile."""
+        name = simpledialog.askstring(
+            'Save Profile', 'Profile name:', parent=self.window
+        )
+        if not name:
+            return
+        self.profile_manager.build_from_current(
+            name=name,
+            description='Saved from current session',
+            modules=dict(self.sec.selective_blocking),
+            blocked_keys=self.sec.blocked_keys[:],
+            blocked_websites=Config.BLOCKED_WEBSITES[:],
+            timer_minutes=(self._exam_timer.get_remaining_seconds() // 60
+                           if self._exam_timer else 0),
+        )
+        self._refresh_profiles()
+        self._toast(f"💾 Saved as '{name}'", C['success'])
+
     # ── Page: Settings ───────────────────────────────────────────
     def _build_settings(self):
         pg = tk.Frame(self._content, bg=C['bg'])
