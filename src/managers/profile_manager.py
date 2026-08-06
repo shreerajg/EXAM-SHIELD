@@ -5,6 +5,7 @@ Each profile stores: modules, blocked keys, blocked websites, timer duration.
 """
 import json
 import datetime
+from typing import Optional
 from src.config import Config
 
 
@@ -39,7 +40,7 @@ class ProfileManager:
         self.db.save_setting(key, json.dumps(data))
         return True
 
-    def load_profile(self, name: str) -> dict | None:
+    def load_profile(self, name: str) -> Optional[dict]:
         """Return the profile dict, or None if not found."""
         key = self.PREFIX + name.strip()
         raw = self.db.get_setting(key)
@@ -63,7 +64,7 @@ class ProfileManager:
         except Exception:
             return False
 
-    def list_profiles(self) -> list[dict]:
+    def list_profiles(self) -> list:
         """Return all saved profiles as a list of dicts (sorted by name)."""
         try:
             with self.db._conn() as conn:

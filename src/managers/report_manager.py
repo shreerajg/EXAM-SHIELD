@@ -4,6 +4,7 @@ Generates a human-readable .txt report at the end of each exam session.
 """
 import os
 import datetime
+from typing import Optional
 from src.config import Config
 
 
@@ -14,14 +15,14 @@ class ReportManager:
 
     def __init__(self, db_manager):
         self.db = db_manager
-        self._session_start: datetime.datetime | None = None
-        self._session_end: datetime.datetime | None = None
-        self._active_modules: list[str] = []
+        self._session_start: Optional[datetime.datetime] = None
+        self._session_end: Optional[datetime.datetime] = None
+        self._active_modules: list = []
         self._profile_name: str = ""
         self._timer_minutes: int = 0
 
     # ── Session lifecycle ────────────────────────────────────────
-    def begin_session(self, modules: list[str],
+    def begin_session(self, modules: list,
                       profile_name: str = "",
                       timer_minutes: int = 0):
         """Call when lockdown starts."""
