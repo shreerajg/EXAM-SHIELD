@@ -38,7 +38,9 @@ class ExamShield:
         self.log = ExamShieldLogger(self.db)
         self.security = None
         self.tray = None
-        self._logged_in_user = None   
+        self._logged_in_user = None
+        self._login_attempts = 0        # consecutive failed attempts
+        self._locked_out = False        # True while lockout timer running
 
         self._build_login_ui()
         self._center()
@@ -205,6 +207,14 @@ class ExamShield:
         self.password_var = self._last_field_var
         self._pw_entry = self._last_field_entry
 
+        # ── Attempt badge (hidden by default)
+        self._attempt_badge = tk.Label(
+            card, text="",
+            font=("Segoe UI", 9, "bold"),
+            bg=C['card'], fg=C['danger']
+        )
+        self._attempt_badge.pack(pady=(0, 4))
+
         # Buttons
         btn_row = tk.Frame(card, bg=C['card'])
         btn_row.pack(fill=tk.X, padx=20, pady=(16, 20))
@@ -363,6 +373,8 @@ class ExamShield:
     # AUTH
     # ═══════════════════════════════════════════════════════════════
     def _login(self):
+        if self._locked_out:
+            return
         user = self.username_var.get().strip()
         pw = self.password_var.get().strip()
         if not user:
@@ -375,15 +387,57 @@ class ExamShield:
             h = hashlib.sha256(pw.encode()).hexdigest()
             if self.db.verify_admin(user, h):
                 self._logged_in_user = user
+                self._login_attempts = 0
+                self._attempt_badge.config(text="")
+                self.db.clear_failed_logins(user)
                 self._start_session()
             else:
+                self._login_attempts += 1
+                self.db.log_failed_login(user)
                 self._shake_window()
                 self.password_var.set("")
-                messagebox.showerror("Login Failed",
-                                     "Invalid credentials!\nPlease try again.",
-                                     parent=self.root)
+                max_a = Config.LOGIN_MAX_ATTEMPTS
+                remaining = max_a - self._login_attempts
+                if self._login_attempts >= max_a:
+                    self._start_lockout()
+                else:
+                    self._attempt_badge.config(
+                        text=f"⚠️  Failed attempt {self._login_attempts}/{max_a}  "
+                             f"({remaining} left before lockout)"
+                    )
+                    messagebox.showerror(
+                        "Login Failed",
+                        "Invalid credentials!\nPlease try again.",
+                        parent=self.root
+                    )
         except Exception as e:
             messagebox.showerror("Error", f"Login error: {e}", parent=self.root)
+
+    def _start_lockout(self):
+        """Lock the login UI for LOGIN_LOCKOUT_SEC seconds."""
+        self._locked_out = True
+        self._login_btn.config(state=tk.DISABLED)
+        self._pw_entry.config(state=tk.DISABLED)
+        secs = Config.LOGIN_LOCKOUT_SEC
+        self.log.warning("LOGIN_LOCKOUT",
+            f"Account locked for {secs}s after {Config.LOGIN_MAX_ATTEMPTS} failed attempts")
+
+        def countdown(remaining):
+            if remaining > 0:
+                self._attempt_badge.config(
+                    text=f"🔒  Too many failed attempts — locked for {remaining}s",
+                    fg=C['danger']
+                )
+                self.root.after(1000, countdown, remaining - 1)
+            else:
+                self._locked_out = False
+                self._login_attempts = 0
+                self._login_btn.config(state=tk.NORMAL)
+                self._pw_entry.config(state=tk.NORMAL)
+                self._attempt_badge.config(text="", fg=C['danger'])
+                self._pw_entry.focus()
+
+        countdown(secs)
 
     def _shake_window(self):
         """Shake the window to indicate error."""
