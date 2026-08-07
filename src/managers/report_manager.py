@@ -138,7 +138,152 @@ class ReportManager:
         with open(path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(lines))
 
+        # Also produce HTML report
+        self._write_html_report(ts, start_str, end_str, dur_str,
+                                breach_counts, screenshots_taken,
+                                screenshot_dir, blocked_events, total_events)
+
         return path
+
+    # ── HTML Report ──────────────────────────────────────────────
+    def _write_html_report(self, ts: str, start_str: str, end_str: str,
+                            dur_str: str, breach_counts: dict,
+                            screenshots_taken: int, screenshot_dir: str,
+                            blocked_events: list, total_events: int):
+        html_path = os.path.join(Config.REPORT_DIR, f"exam_report_{ts}.html")
+        total_breaches = sum(breach_counts.values())
+
+        # Build breach rows
+        breach_rows = ""
+        for key, label in [
+            ('keyboard',  'Blocked Keystrokes'),
+            ('network',   'Network Attempts'),
+            ('processes', 'Suspicious Processes'),
+            ('usb',       'USB Block Events'),
+            ('windows',   'Window Violations'),
+        ]:
+            v = breach_counts.get(key, 0)
+            color = "#ff4757" if v > 0 else "#00e676"
+            breach_rows += (
+                f"<tr><td>{label}</td>"
+                f"<td style='color:{color};font-weight:bold;text-align:center'>{v}</td></tr>\n"
+            )
+
+        # Build event log rows (up to 200)
+        event_rows = ""
+        for action, details, ts_str in blocked_events[:200]:
+            event_rows += (
+                f"<tr>"
+                f"<td style='color:#6a6a9e;font-size:11px'>{ts_str}</td>"
+                f"<td style='color:#ff4757'>{action}</td>"
+                f"<td>{details or '—'}</td>"
+                f"</tr>\n"
+            )
+        if len(blocked_events) > 200:
+            event_rows += (
+                f"<tr><td colspan='3' style='color:#ffab40;text-align:center'>"
+                f"... and {len(blocked_events) - 200} more events.</td></tr>\n"
+            )
+
+        modules_html = "".join(
+            f"<span class='badge'>{m.capitalize()}</span>"
+            for m in self._active_modules
+        )
+
+        timer_display = f"{self._timer_minutes} min" if self._timer_minutes else "(not used)"
+
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ExamShield — Session Report</title>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: 'Segoe UI', sans-serif; background: #0a0a1a;
+          color: #e8e8f0; padding: 32px; }}
+  h1 {{ color: #00d4ff; font-size: 24px; margin-bottom: 4px; }}
+  .subtitle {{ color: #6a6a9e; font-size: 13px; margin-bottom: 28px; }}
+  .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+           margin-bottom: 28px; }}
+  .card {{ background: #16163a; border: 1px solid #252550;
+           border-radius: 8px; padding: 20px; }}
+  .card h2 {{ color: #00d4ff; font-size: 13px; text-transform: uppercase;
+              letter-spacing: 1px; margin-bottom: 14px; border-bottom: 1px solid #252550;
+              padding-bottom: 8px; }}
+  .meta-row {{ display: flex; justify-content: space-between;
+               padding: 6px 0; border-bottom: 1px solid #1a1a3a; }}
+  .meta-label {{ color: #6a6a9e; font-size: 12px; }}
+  .meta-val {{ font-size: 12px; font-weight: 600; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+  th {{ background: #1a1a3a; color: #00d4ff; padding: 8px 12px;
+        text-align: left; font-size: 11px; text-transform: uppercase; }}
+  td {{ padding: 7px 12px; border-bottom: 1px solid #1a1a3a; }}
+  tr:hover td {{ background: #12122a; }}
+  .badge {{ display: inline-block; background: #7f5af033;
+            color: #7f5af0; border: 1px solid #7f5af0;
+            border-radius: 4px; padding: 2px 10px;
+            font-size: 11px; margin: 2px; }}
+  .total-box {{ background: #16163a; border: 2px solid #ff4757;
+               border-radius: 8px; padding: 16px 24px;
+               display: inline-block; margin-bottom: 20px; }}
+  .total-box .num {{ font-size: 48px; font-weight: 900;
+                     color: #ff4757; line-height: 1; }}
+  .total-box .lbl {{ color: #6a6a9e; font-size: 13px; margin-top: 4px; }}
+  .full-card {{ background: #16163a; border: 1px solid #252550;
+                border-radius: 8px; padding: 20px;
+                margin-bottom: 20px; }}
+  .footer {{ color: #6a6a9e; font-size: 11px; margin-top: 28px;
+             border-top: 1px solid #252550; padding-top: 14px; }}
+</style>
+</head>
+<body>
+  <h1>🛡️ EXAM SHIELD — Session Report</h1>
+  <div class="subtitle">Generated: {datetime.datetime.now():%Y-%m-%d %H:%M:%S} &nbsp;·&nbsp; ExamShield v{Config.VERSION}</div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>📋 Session Info</h2>
+      <div class="meta-row"><span class="meta-label">Profile</span><span class="meta-val">{self._profile_name or '(custom)'}</span></div>
+      <div class="meta-row"><span class="meta-label">Start</span><span class="meta-val">{start_str}</span></div>
+      <div class="meta-row"><span class="meta-label">End</span><span class="meta-val">{end_str}</span></div>
+      <div class="meta-row"><span class="meta-label">Duration</span><span class="meta-val">{dur_str}</span></div>
+      <div class="meta-row"><span class="meta-label">Timer set</span><span class="meta-val">{timer_display}</span></div>
+      <div class="meta-row"><span class="meta-label">Screenshots</span><span class="meta-val">{screenshots_taken}</span></div>
+      <div class="meta-row"><span class="meta-label">Total log entries</span><span class="meta-val">{total_events}</span></div>
+    </div>
+    <div class="card">
+      <h2>🔧 Active Modules</h2>
+      <div style="margin-top:8px">{modules_html}</div>
+    </div>
+  </div>
+
+  <div class="full-card">
+    <h2 style="color:#ff4757;font-size:13px;text-transform:uppercase;letter-spacing:1px;margin-bottom:16px;border-bottom:1px solid #252550;padding-bottom:8px">🚫 Breach Summary</h2>
+    <div style="margin-bottom:20px">
+      <div class="total-box">
+        <div class="num">{total_breaches}</div>
+        <div class="lbl">Total Blocked Events</div>
+      </div>
+    </div>
+    <table>
+      <tr><th>Category</th><th style="text-align:center">Count</th></tr>
+      {breach_rows}
+    </table>
+  </div>
+
+  {'<div class="full-card"><h2 style="color:#ffab40;font-size:13px;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;border-bottom:1px solid #252550;padding-bottom:8px">⚡ Blocked Event Log</h2><table><tr><th>Time</th><th>Action</th><th>Details</th></tr>' + event_rows + '</table></div>' if blocked_events else ''}
+
+  <div class="footer">
+    ExamShield v{Config.VERSION} &nbsp;·&nbsp; Report path: {html_path}
+  </div>
+</body>
+</html>"""
+
+        try:
+            with open(html_path, 'w', encoding='utf-8') as f:
+                f.write(html)
+        except Exception as e:
+            print(f"[Report] HTML write failed: {e}")
 
     def _is_in_session(self, ts_str: str) -> bool:
         """Return True if ts_str falls within this session's window."""
