@@ -821,24 +821,7 @@ class AdminPanel:
                        ('Remove', self._remove_website)]:
             styled_btn(btns, t, cmd, bg=C['surface']).pack(fill=tk.X, pady=2)
 
-    def _build_advanced_settings(self, parent):
-        f = tk.LabelFrame(parent, text="🔧  Advanced",
-                           bg=C['bg'], fg=C['primary'],
-                           font=('Segoe UI', 10, 'bold'), padx=10, pady=10)
-        f.pack(fill=tk.X, padx=16, pady=(0, 16))
-        self._autostart_var = tk.BooleanVar()
-        self._winprot_var   = tk.BooleanVar(value=True)
-        self._procmon_var   = tk.BooleanVar(value=True)
-        for text, var in [
-            ('Auto-start lockdown on login',        self._autostart_var),
-            ('Aggressive window protection',         self._winprot_var),
-            ('Auto-terminate suspicious processes',  self._procmon_var),
-        ]:
-            tk.Checkbutton(f, text=text, variable=var, bg=C['bg'],
-                           fg=C['text'], selectcolor=C['input_bg'],
-                           activebackground=C['bg']).pack(anchor=tk.W)
-        styled_btn(f, '💾  Save All Settings', self._save_settings,
-                   bg=C['primary'], fg='#0a0a0a').pack(pady=(12, 0))
+    def _build_advanced_settings(self, parent):\n        f = tk.LabelFrame(parent, text="🔧  Advanced",\n                           bg=C['bg'], fg=C['primary'],\n                           font=('Segoe UI', 10, 'bold'), padx=10, pady=10)\n        f.pack(fill=tk.X, padx=16, pady=(0, 8))\n        self._autostart_var = tk.BooleanVar()\n        self._winprot_var   = tk.BooleanVar(value=True)\n        self._procmon_var   = tk.BooleanVar(value=True)\n        for text, var in [\n            ('Auto-start lockdown on login',        self._autostart_var),\n            ('Aggressive window protection',         self._winprot_var),\n            ('Auto-terminate suspicious processes',  self._procmon_var),\n        ]:\n            tk.Checkbutton(f, text=text, variable=var, bg=C['bg'],\n                           fg=C['text'], selectcolor=C['input_bg'],\n                           activebackground=C['bg']).pack(anchor=tk.W)\n\n        # Screenshot interval\n        ss_row = tk.Frame(f, bg=C['bg'])\n        ss_row.pack(fill=tk.X, pady=(10, 2))\n        tk.Label(ss_row, text='📸  Screenshot interval (seconds):',\n                 font=('Segoe UI', 9, 'bold'), bg=C['bg'],\n                 fg=C['text']).pack(side=tk.LEFT, padx=(0, 8))\n        saved_interval = int(self.db.get_setting('screenshot_interval',\n                                                  str(Config.SCREENSHOT_INTERVAL_SEC)))\n        self._ss_interval_var = tk.IntVar(value=saved_interval)\n        spinbox = tk.Spinbox(\n            ss_row, from_=10, to=300, increment=10,\n            textvariable=self._ss_interval_var,\n            width=6, font=('Segoe UI', 10),\n            bg=C['input_bg'], fg=C['text'],\n            buttonbackground=C['surface_alt'],\n            relief=tk.FLAT\n        )\n        spinbox.pack(side=tk.LEFT)\n        tk.Label(ss_row, text='(10–300 s)',\n                 font=('Segoe UI', 8), bg=C['bg'],\n                 fg=C['text_dim']).pack(side=tk.LEFT, padx=(6, 0))\n\n        styled_btn(f, '💾  Save All Settings', self._save_settings,\n                   bg=C['primary'], fg='#0a0a0a').pack(pady=(12, 0))\n\n    # ── Network Allowed-Sites (whitelist) section ─────────────────\n    def _build_allowed_sites_settings(self, parent):\n        f = tk.LabelFrame(parent, text="✅  Allowed Websites (Whitelist)",\n                           bg=C['bg'], fg=C['success'],\n                           font=('Segoe UI', 10, 'bold'), padx=10, pady=10)\n        f.pack(fill=tk.X, padx=16, pady=(0, 16))\n        tk.Label(f, text='These sites will NOT be blocked even if internet blocking is on.',\n                 font=('Segoe UI', 8), bg=C['bg'],\n                 fg=C['text_dim']).pack(anchor=tk.W, pady=(0, 6))\n        row = tk.Frame(f, bg=C['bg'])\n        row.pack(fill=tk.X)\n        self._allow_lb = tk.Listbox(\n            row, height=4, bg=C['input_bg'], fg=C['success'],\n            selectbackground=C['success_dark'],\n            font=('Consolas', 10), relief=tk.FLAT,\n            highlightthickness=1, highlightcolor=C['border'])\n        self._allow_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))\n        self._load_allowed_list()\n        btns = tk.Frame(row, bg=C['bg'])\n        btns.pack(side=tk.RIGHT, fill=tk.Y)\n        for t, cmd in [('Add',    self._add_allowed_site),\n                       ('Remove', self._remove_allowed_site)]:\n            styled_btn(btns, t, cmd, bg=C['surface']).pack(fill=tk.X, pady=2)
 
     # ── Page: Logs ───────────────────────────────────────────
     def _build_logs(self):
