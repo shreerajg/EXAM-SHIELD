@@ -840,7 +840,7 @@ class AdminPanel:
         styled_btn(f, '💾  Save All Settings', self._save_settings,
                    bg=C['primary'], fg='#0a0a0a').pack(pady=(12, 0))
 
-    # ── Page: Logs ───────────────────────────────────────────────
+    # ── Page: Logs ───────────────────────────────────────────
     def _build_logs(self):
         pg = tk.Frame(self._content, bg=C['bg'])
         section_header(pg, "Activity Logs", C['info'])
@@ -861,6 +861,27 @@ class AdminPanel:
         filt.pack(side=tk.LEFT)
         filt.bind('<<ComboboxSelected>>', lambda e: self._refresh_logs())
 
+        # ── Search bar
+        search_row = tk.Frame(pg, bg=C['bg'])
+        search_row.pack(fill=tk.X, padx=16, pady=(4, 0))
+        tk.Label(search_row, text='🔍  Search:',
+                 font=('Segoe UI', 9), bg=C['bg'],
+                 fg=C['text_dim']).pack(side=tk.LEFT, padx=(0, 6))
+        self._log_search_var = tk.StringVar()
+        search_entry = tk.Entry(
+            search_row, textvariable=self._log_search_var,
+            font=('Segoe UI', 10), bg=C['input_bg'], fg=C['text'],
+            relief=tk.FLAT, insertbackground=C['primary'],
+            highlightthickness=1, highlightcolor=C['primary'],
+            highlightbackground=C['border']
+        )
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=5)
+        styled_btn(search_row, '✕',
+                   lambda: (self._log_search_var.set(''), self._refresh_logs()),
+                   bg=C['surface'], pady=4).pack(side=tk.LEFT, padx=(4, 0))
+        # Live search on every keystroke
+        self._log_search_var.trace_add('write', lambda *_: self._refresh_logs())
+
         self._stats_label = tk.Label(pg, text='', font=('Consolas', 9),
                                       bg=C['bg'], fg=C['text_dim'])
         self._stats_label.pack(anchor=tk.W, padx=16, pady=2)
@@ -876,6 +897,8 @@ class AdminPanel:
         self._logs_text.tag_config('blocked', foreground=C['danger'])
         self._logs_text.tag_config('ok',      foreground=C['success'])
         self._logs_text.tag_config('ts',      foreground=C['text_dim'])
+        self._logs_text.tag_config('match',   background='#00d4ff22',
+                                               foreground=C['text_bright'])
         return pg
 
     # ── Lockdown Dialog ──────────────────────────────────────────
@@ -1658,9 +1681,13 @@ class AdminPanel:
     # ── Logs ─────────────────────────────────────────────────────
     def _refresh_logs(self):
         filt = self._filter_var.get()
+        search_query = self._log_search_var.get().lower()
         logs = self.db.get_activity_logs(200, filter_type=filt)
         self._logs_text.delete('1.0', tk.END)
         for action, details, ts, blocked in logs:
+            if search_query and (search_query not in action.lower() and
+                                 search_query not in (details or '').lower()):
+                continue
             tag = 'blocked' if blocked else 'ok'
             icon = '🚫' if blocked else '✅'
             self._logs_text.insert(tk.END, f"[{ts}] ", 'ts')
