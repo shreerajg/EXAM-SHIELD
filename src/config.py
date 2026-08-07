@@ -7,7 +7,7 @@ import os
 class Config:
     # ── Application ──────────────────────────────────────────────
     APP_NAME = "Exam Shield"
-    VERSION = "1.1.0"
+    VERSION = "1.2.0"
     BUILD = "stable"
 
     # ── Paths ────────────────────────────────────────────────────
@@ -19,7 +19,11 @@ class Config:
     REPORT_DIR = os.path.join(LOG_DIR, "reports")
 
     # ── Screenshot Monitoring ─────────────────────────────────────
-    SCREENSHOT_INTERVAL_SEC = 60    # capture every N seconds during lockdown
+    SCREENSHOT_INTERVAL_SEC = 60    # capture every N seconds during lockdown (overridable from Settings UI)
+
+    # ── Login Security ────────────────────────────────────────────
+    LOGIN_MAX_ATTEMPTS  = 5    # failed attempts before lockout
+    LOGIN_LOCKOUT_SEC   = 30   # lockout duration in seconds
 
     # ── Default Credentials ──────────────────────────────────────
     DEFAULT_ADMIN_USERNAME = "admin"
@@ -76,6 +80,9 @@ class Config:
         'telegram.org', 'web.telegram.org',
         'snapchat.com', 'www.snapchat.com',
     ]
+
+    # ── Allowed Websites (whitelist, excluded from blocking) ─────
+    ALLOWED_WEBSITES: list = []
 
     # ── Suspicious Processes ─────────────────────────────────────
     SUSPICIOUS_PROCESSES = [
