@@ -53,6 +53,11 @@ class DatabaseManager:
                     restrictions TEXT,
                     FOREIGN KEY (admin_id) REFERENCES users(id)
                 )''')
+                c.execute('''CREATE TABLE IF NOT EXISTS failed_logins (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username   TEXT NOT NULL,
+                    timestamp  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )''')
                 conn.commit()
                 if not self.admin_exists():
                     self._create_default_admin(c, conn)
@@ -60,7 +65,7 @@ class DatabaseManager:
             print(f"[DB] Init error: {e}")
 
     def _conn(self):
-        return sqlite3.connect(self.db_path, timeout=5)
+        return sqlite3.connect(self.db_path, timeout=10, check_same_thread=False)
 
     def _create_default_admin(self, cursor, conn):
         pw = hashlib.sha256(Config.DEFAULT_ADMIN_PASSWORD.encode()).hexdigest()
@@ -174,6 +179,32 @@ class DatabaseManager:
         except sqlite3.Error as e:
             print(f"[DB] Clear logs error: {e}")
 
+    def search_logs(self, query: str, limit: int = 200,
+                    filter_type: str = "All") -> list:
+        """Full-text search across action + details columns."""
+        q = f"%{query}%"
+        try:
+            with self._conn() as conn:
+                base = (
+                    "SELECT action, details, timestamp, blocked "
+                    "FROM activity_logs "
+                    "WHERE (action LIKE ? OR details LIKE ?) "
+                )
+                params: list = [q, q]
+                if filter_type == "Blocked Only":
+                    base += "AND blocked=1 "
+                elif filter_type == "Security Events":
+                    base += ("AND (action LIKE '%BLOCKED%' OR action LIKE '%SECURITY%' "
+                             "OR action LIKE '%SUSPICIOUS%') ")
+                elif filter_type == "System Events":
+                    base += "AND (action LIKE '%SYSTEM%' OR action LIKE '%EXAM_MODE%') "
+                base += "ORDER BY timestamp DESC LIMIT ?"
+                params.append(limit)
+                return conn.execute(base, params).fetchall()
+        except sqlite3.Error as e:
+            print(f"[DB] Search logs error: {e}")
+            return []
+
     def get_log_stats(self):
         """Return counts for dashboard display."""
         try:
@@ -185,6 +216,45 @@ class DatabaseManager:
                 return {"total": total, "blocked": blocked, "allowed": total - blocked}
         except sqlite3.Error:
             return {"total": 0, "blocked": 0, "allowed": 0}
+
+    def get_session_stats(self) -> dict:
+        """Aggregate stats for the Dashboard Session History panel."""
+        try:
+            with self._conn() as conn:
+                total_blocked = conn.execute(
+                    "SELECT COUNT(*) FROM activity_logs WHERE blocked=1"
+                ).fetchone()[0]
+                # Approximate session count by APP_START events
+                sessions = conn.execute(
+                    "SELECT COUNT(*) FROM activity_logs WHERE action='APP_START'"
+                ).fetchone()[0]
+                # Most recent exam stop
+                last_row = conn.execute(
+                    "SELECT timestamp FROM activity_logs "
+                    "WHERE action='EXAM_MODE_STOP' ORDER BY timestamp DESC LIMIT 1"
+                ).fetchone()
+                last_session = last_row[0][:16] if last_row else "N/A"
+                # Last-session breach count (breaches since last EXAM_MODE_START)
+                start_row = conn.execute(
+                    "SELECT timestamp FROM activity_logs "
+                    "WHERE action='EXAM_MODE_START' ORDER BY timestamp DESC LIMIT 1"
+                ).fetchone()
+                last_breaches = 0
+                if start_row:
+                    last_breaches = conn.execute(
+                        "SELECT COUNT(*) FROM activity_logs "
+                        "WHERE blocked=1 AND timestamp >= ?",
+                        (start_row[0],)
+                    ).fetchone()[0]
+                return {
+                    "sessions": sessions,
+                    "total_blocked": total_blocked,
+                    "last_session": last_session,
+                    "last_breaches": last_breaches,
+                }
+        except sqlite3.Error:
+            return {"sessions": 0, "total_blocked": 0,
+                    "last_session": "N/A", "last_breaches": 0}
 
     # ── Settings ─────────────────────────────────────────────────
     def save_setting(self, key, value):
@@ -234,7 +304,44 @@ class DatabaseManager:
             "blocked_websites": json.loads(websites_json) if websites_json else None,
         }
 
-    # ── Maintenance ──────────────────────────────────────────────
+    # ── Failed Login Tracking ──────────────────────────────
+    def log_failed_login(self, username: str):
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    "INSERT INTO failed_logins (username) VALUES (?)",
+                    (username,)
+                )
+                conn.commit()
+        except sqlite3.Error as e:
+            print(f"[DB] Failed login log error: {e}")
+
+    def get_recent_failed_logins(self, username: str,
+                                  window_sec: int = 300) -> int:
+        """Count failed logins for *username* in the last window_sec seconds."""
+        try:
+            with self._conn() as conn:
+                cutoff = datetime.datetime.now() - datetime.timedelta(seconds=window_sec)
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM failed_logins "
+                    "WHERE username=? AND timestamp >= ?",
+                    (username, cutoff)
+                ).fetchone()
+                return row[0] if row else 0
+        except sqlite3.Error:
+            return 0
+
+    def clear_failed_logins(self, username: str):
+        """Clear failed login records for *username* (called on success)."""
+        try:
+            with self._conn() as conn:
+                conn.execute("DELETE FROM failed_logins WHERE username=?",
+                             (username,))
+                conn.commit()
+        except sqlite3.Error as e:
+            print(f"[DB] Clear failed logins error: {e}")
+
+    # ── Maintenance ────────────────────────────────────────────
     def cleanup_old_logs(self):
         try:
             cutoff = datetime.datetime.now() - datetime.timedelta(days=Config.LOG_RETENTION_DAYS)
