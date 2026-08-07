@@ -1,5 +1,5 @@
 """
-ExamShield v1.1.0 — Admin Panel
+ExamShield v1.2.0 — Admin Panel
 Sidebar-based dark control centre.
 """
 import tkinter as tk
@@ -377,6 +377,22 @@ class AdminPanel:
             styled_btn(qrow, label, cmd, bg=C['surface']).pack(
                 side=tk.LEFT, padx=(0, 6), pady=4)
 
+        # ── Session History ───────────────────────────────────────
+        section_header(pg, "Session History", C['primary'])
+        hist_row = tk.Frame(pg, bg=C['bg'])
+        hist_row.pack(fill=tk.X, padx=16, pady=(0, 12))
+
+        self._hist_sessions  = self._stat_card(hist_row, "SESSIONS",  C['primary'],  is_bar=False)
+        self._hist_breaches  = self._stat_card(hist_row, "TOTAL BREACHES", C['danger'], is_bar=False)
+        self._hist_last      = self._stat_card(hist_row, "LAST SESSION",   C['accent'], is_bar=False)
+        self._hist_lastb     = self._stat_card(hist_row, "LAST BREACHES",  C['warning'],is_bar=False)
+
+        styled_btn(hist_row, "🔄",
+                   self._refresh_session_history,
+                   bg=C['surface'], pady=4
+                   ).pack(side=tk.LEFT, padx=(8, 0), pady=8)
+
+        self._refresh_session_history()
         return pg
 
     def _stat_card(self, parent, label, color, is_bar=True):
