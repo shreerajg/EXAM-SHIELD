@@ -176,11 +176,17 @@ class SecurityManager:
             self.screenshot_manager.capture_violation(
                 reason=f"key_{combo.replace('+', '-')}"
             )
-            # Notify dashboard counter
-            if self.admin_panel and hasattr(self.admin_panel, 'update_breach_counter'):
+            # Notify dashboard counter + real-time toast
+            if self.admin_panel and hasattr(self.admin_panel, 'window'):
                 try:
                     self.admin_panel.window.after(
                         0, self.admin_panel.update_breach_counter
+                    )
+                    self.admin_panel.window.after(
+                        0, lambda c=combo: self.admin_panel._toast(
+                            f"⌨️  Blocked key: {c}",
+                            self.admin_panel.window.nametowidget('.').option_get('', '') or '#ff4757'
+                        ) if hasattr(self.admin_panel, '_toast') else None
                     )
                 except Exception:
                     pass
@@ -223,6 +229,20 @@ class SecurityManager:
                             self.screenshot_manager.capture_violation(
                                 reason=f"proc_{name}"
                             )
+                            # Real-time breach toast
+                            if self.admin_panel and hasattr(self.admin_panel, '_toast'):
+                                try:
+                                    self.admin_panel.window.after(
+                                        0, lambda n=name: self.admin_panel._toast(
+                                            f"🔍  Terminated process: {n}",
+                                            '#ff4757'
+                                        )
+                                    )
+                                    self.admin_panel.window.after(
+                                        0, self.admin_panel.update_breach_counter
+                                    )
+                                except Exception:
+                                    pass
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         continue
             except Exception as e:
