@@ -1750,7 +1750,11 @@ class AdminPanel:
                     self.window.after(0, self._refresh_status)
                     self.window.after(0, self._update_activity)
                     time.sleep(2)
-                except Exception:
+                except Exception as exc:
+                    try:
+                        self.log.error("AUTO_REFRESH", f"Loop error: {exc}", db=False)
+                    except Exception:
+                        pass
                     break
         threading.Thread(target=loop, daemon=True).start()
 
