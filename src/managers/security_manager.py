@@ -184,8 +184,7 @@ class SecurityManager:
                     )
                     self.admin_panel.window.after(
                         0, lambda c=combo: self.admin_panel._toast(
-                            f"⌨️  Blocked key: {c}",
-                            self.admin_panel.window.nametowidget('.').option_get('', '') or '#ff4757'
+                            f"\u2328\ufe0f  Blocked key: {c}", '#ff4757'
                         ) if hasattr(self.admin_panel, '_toast') else None
                     )
                 except Exception:
