@@ -291,8 +291,8 @@ class SecurityManager:
                 'usb_blocking':     self.usb_manager.is_active,
                 'window_protection':self.window_manager.is_active,
                 'clipboard_blocked':self.clipboard_manager.is_active,
-                'vm_rdp_detected':  self.hardware_manager.is_virtual_machine() or self.hardware_manager.is_rdp_session(),
-                'multi_monitor':    self.hardware_manager.has_multiple_monitors(),
+                'vm_rdp_clear':     not (self.hardware_manager.is_virtual_machine() or self.hardware_manager.is_rdp_session()),
+                'single_monitor':   not self.hardware_manager.has_multiple_monitors(),
                 'breach_counts':    dict(self.breach_counts),
                 'screenshots_taken':self.screenshot_manager.get_count(),
             }

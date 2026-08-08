@@ -1305,7 +1305,7 @@ class AdminPanel:
         map_ = [('keyboard', 'hooks_active'), ('mouse', 'mouse_blocking'),
                 ('network', 'internet_blocked'), ('windows', 'window_protection'),
                 ('usb', 'usb_blocking'), ('clipboard', 'clipboard_blocked'),
-                ('vm_rdp', 'vm_rdp_detected'), ('multi_monitor', 'multi_monitor')]
+                ('vm_rdp', 'vm_rdp_clear'), ('multi_monitor', 'single_monitor')]
         for key, syskey in map_:
             active = info.get(syskey, False)
             # Extract icon+label from existing text
@@ -1326,8 +1326,8 @@ class AdminPanel:
                 sel.get('internet') and not info.get('internet_blocked'),
                 sel.get('windows') and not info.get('window_protection'),
                 sel.get('clipboard') and not info.get('clipboard_blocked'),
-                sel.get('vm_rdp') and info.get('vm_rdp_detected'),
-                sel.get('multi_monitor') and info.get('multi_monitor'),
+                sel.get('vm_rdp') and not info.get('vm_rdp_clear'),
+                sel.get('multi_monitor') and not info.get('single_monitor'),
             ])
             if threats == 0:
                 self._threat_label.config(
