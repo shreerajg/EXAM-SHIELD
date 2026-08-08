@@ -382,10 +382,10 @@ class AdminPanel:
         hist_row = tk.Frame(pg, bg=C['bg'])
         hist_row.pack(fill=tk.X, padx=16, pady=(0, 12))
 
-        self._hist_sessions  = self._stat_card(hist_row, "SESSIONS",  C['primary'],  is_bar=False)
-        self._hist_breaches  = self._stat_card(hist_row, "TOTAL BREACHES", C['danger'], is_bar=False)
-        self._hist_last      = self._stat_card(hist_row, "LAST SESSION",   C['accent'], is_bar=False)
-        self._hist_lastb     = self._stat_card(hist_row, "LAST BREACHES",  C['warning'],is_bar=False)
+        self._hist_sessions  = self._stat_card(hist_row, "SESSIONS",       C['primary'],  is_bar=False)
+        self._hist_breaches  = self._stat_card(hist_row, "TOTAL BREACHES",  C['danger'],   is_bar=False)
+        self._hist_last      = self._stat_card(hist_row, "LAST SESSION",    C['accent'],   is_bar=False)
+        self._hist_lastb     = self._stat_card(hist_row, "LAST BREACHES",   C['warning'],  is_bar=False)
 
         styled_btn(hist_row, "🔄",
                    self._refresh_session_history,
@@ -474,6 +474,13 @@ class AdminPanel:
         styled_btn(tb, '🗑  Delete',        self._delete_profile,
                    bg=C['danger'], fg='white').pack(side=tk.LEFT, padx=(0, 6))
         styled_btn(tb, '💾  Save Current', self._save_current_as_profile,
+                   bg=C['surface']).pack(side=tk.LEFT, padx=(0, 6))
+        # ── New in v1.2
+        styled_btn(tb, '📋  Duplicate',    self._duplicate_profile,
+                   bg=C['surface']).pack(side=tk.LEFT, padx=(0, 6))
+        styled_btn(tb, '📤  Export',       self._export_profile,
+                   bg=C['surface']).pack(side=tk.LEFT, padx=(0, 6))
+        styled_btn(tb, '📥  Import',       self._import_profile,
                    bg=C['surface']).pack(side=tk.LEFT, padx=(0, 6))
         styled_btn(tb, '🔄 Refresh',       self._refresh_profiles,
                    bg=C['surface_alt']).pack(side=tk.RIGHT)
@@ -701,6 +708,7 @@ class AdminPanel:
         self._build_keyboard_settings(inner)
         self._build_mouse_settings(inner)
         self._build_network_settings(inner)
+        self._build_allowed_sites_settings(inner)
         self._build_advanced_settings(inner)
         return pg
 
@@ -1593,6 +1601,17 @@ class AdminPanel:
     # ── Settings persistence ──────────────────────────────────────
     def _save_settings(self):
         try:
+            # Screenshot interval
+            interval = self._ss_interval_var.get() if hasattr(self, '_ss_interval_var') else 60
+            interval = max(10, min(300, interval))
+            Config.SCREENSHOT_INTERVAL_SEC = interval
+            self.db.save_setting('screenshot_interval', str(interval))
+
+            # Allowed websites whitelist
+            allowed = list(self._allow_lb.get(0, tk.END)) if hasattr(self, '_allow_lb') else []
+            Config.ALLOWED_WEBSITES = allowed
+            self.db.save_setting('allowed_websites', json.dumps(allowed))
+
             self.db.save_settings_bulk({
                 'blocked_keys':
                     json.dumps(self.sec.blocked_keys),
@@ -1610,7 +1629,98 @@ class AdminPanel:
             messagebox.showerror('Error', f'Save failed: {e}',
                                   parent=self.window)
 
+    # ── Allowed-Sites whitelist helpers ───────────────────────────
+    def _load_allowed_list(self):
+        """Populate the allowed-sites listbox from DB + Config."""
+        raw = self.db.get_setting('allowed_websites', '[]')
+        try:
+            sites = json.loads(raw)
+        except Exception:
+            sites = []
+        Config.ALLOWED_WEBSITES = sites
+        self._allow_lb.delete(0, tk.END)
+        for s in sites:
+            self._allow_lb.insert(tk.END, s)
+
+    def _add_allowed_site(self):
+        site = simpledialog.askstring(
+            'Allow Site', 'Website to whitelist (e.g. myexam.edu):',
+            parent=self.window)
+        if site and site.strip():
+            s = site.strip().lower()
+            if s not in self._allow_lb.get(0, tk.END):
+                self._allow_lb.insert(tk.END, s)
+
+    def _remove_allowed_site(self):
+        sel = self._allow_lb.curselection()
+        if sel:
+            self._allow_lb.delete(sel[0])
+
+    # ── Session History panel helpers ─────────────────────────────
+    def _refresh_session_history(self):
+        try:
+            stats = self.db.get_session_stats()
+            self._hist_sessions['label'].config(text=str(stats.get('sessions', 0)))
+            self._hist_breaches['label'].config(text=str(stats.get('total_blocked', 0)))
+            self._hist_last['label'].config(text=str(stats.get('last_session', 'N/A')))
+            self._hist_lastb['label'].config(text=str(stats.get('last_breaches', 0)))
+        except Exception:
+            pass
+
+    # ── Profile Duplicate / Export / Import ───────────────────────
+    def _duplicate_profile(self):
+        sel = self._prof_tree.selection()
+        if not sel:
+            self._toast("Select a profile first", C['warning'])
+            return
+        name = sel[0]
+        data = self.profile_manager.load_profile(name)
+        if data:
+            new_name = f"{name} (copy)"
+            self.profile_manager.save_profile(new_name, data.copy())
+            self._refresh_profiles()
+            self._toast(f"📋 Duplicated as '{new_name}'", C['success'])
+
+    def _export_profile(self):
+        sel = self._prof_tree.selection()
+        if not sel:
+            self._toast("Select a profile to export", C['warning'])
+            return
+        name = sel[0]
+        data = self.profile_manager.load_profile(name)
+        if not data:
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension='.json',
+            initialfile=f"{name.replace(' ', '_')}.json",
+            filetypes=[('JSON', '*.json'), ('All', '*.*')],
+            parent=self.window)
+        if path:
+            try:
+                with open(path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                self._toast(f"💾 Exported to {path}", C['success'])
+            except Exception as e:
+                messagebox.showerror('Export Error', str(e), parent=self.window)
+
+    def _import_profile(self):
+        path = filedialog.askopenfilename(
+            filetypes=[('JSON', '*.json'), ('All', '*.*')],
+            parent=self.window)
+        if not path:
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            name = data.get('name', 'Imported Profile')
+            self.profile_manager.save_profile(name, data)
+            self._refresh_profiles()
+            self._toast(f"📥 Imported '{name}'", C['success'])
+        except Exception as e:
+            messagebox.showerror('Import Error', str(e), parent=self.window)
+
     # ── Password change ───────────────────────────────────────────
+
     def _change_password(self):
         dlg = tk.Toplevel(self.window)
         dlg.title('🔑 Change Admin Password')
