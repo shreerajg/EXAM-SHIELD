@@ -996,6 +996,12 @@ class AdminPanel:
              'Auto-terminate suspicious processes'),
             ('usb',       '💾', 'USB Storage Lock',
              'Block USB mass storage devices'),
+            ('clipboard', '📋', 'Clipboard Protection',
+             'Aggressively clear clipboard to prevent copy-paste'),
+            ('vm_rdp',    '🖥', 'Anti-VM & RDP',
+             'Block Virtual Machines and Remote Desktop'),
+            ('multi_monitor', '📺', 'Multi-Monitor Block',
+             'Require disconnecting secondary displays'),
         ]
         sel_vars: dict[str, tk.BooleanVar] = {}
         for key, icon, title, desc in modules:
