@@ -14,6 +14,8 @@ from src.managers.usb_manager import USBManager
 from src.managers.screenshot_manager import ScreenshotManager
 from src.managers.report_manager import ReportManager
 from src.managers.watchdog_manager import WatchdogManager
+from src.managers.hardware_manager import HardwareManager
+from src.managers.clipboard_manager import ClipboardManager
 from src.logger import ExamShieldLogger
 
 
@@ -34,6 +36,8 @@ class SecurityManager:
         self.screenshot_manager = ScreenshotManager(db_manager)
         self.report_manager     = ReportManager(db_manager)
         self.watchdog_manager   = WatchdogManager(db_manager)
+        self.hardware_manager   = HardwareManager(db_manager)
+        self.clipboard_manager  = ClipboardManager(db_manager)
 
         # Thread control
         self._proc_stop   = threading.Event()
@@ -69,6 +73,16 @@ class SecurityManager:
 
         if selective_options:
             self.selective_blocking.update(selective_options)
+            
+        # Hardware Pre-flight checks
+        sel = self.selective_blocking
+        success, err_msg = self.hardware_manager.run_preflight_checks(
+            block_multi_monitor=sel.get('multi_monitor', True),
+            detect_vm_rdp=sel.get('vm_rdp', True)
+        )
+        if not success:
+            self.log.security("PREFLIGHT_FAIL", err_msg, blocked=True)
+            raise RuntimeError(err_msg)
 
         # Store session metadata for the report
         self._session_profile   = profile_name
@@ -91,6 +105,8 @@ class SecurityManager:
                     self.admin_panel.window, "Admin Panel"
                 )
             self.window_manager.start_window_protection()
+        if sel.get('clipboard', True):
+            self.clipboard_manager.start()
 
         # Screenshot monitoring (always during lockdown)
         self.screenshot_manager.start(session_label=profile_name or "exam")
@@ -126,6 +142,7 @@ class SecurityManager:
         self.network_manager.stop_blocking()
         self.usb_manager.stop_blocking()
         self.window_manager.stop_window_protection()
+        self.clipboard_manager.stop()
 
         # Stop watchdog FIRST so it doesn't fight clean-up
         self.watchdog_manager.stop()
@@ -273,6 +290,9 @@ class SecurityManager:
                 'internet_blocked': self.network_manager.is_blocked,
                 'usb_blocking':     self.usb_manager.is_active,
                 'window_protection':self.window_manager.is_active,
+                'clipboard_blocked':self.clipboard_manager.is_active,
+                'vm_rdp_detected':  self.hardware_manager.is_virtual_machine() or self.hardware_manager.is_rdp_session(),
+                'multi_monitor':    self.hardware_manager.has_multiple_monitors(),
                 'breach_counts':    dict(self.breach_counts),
                 'screenshots_taken':self.screenshot_manager.get_count(),
             }
