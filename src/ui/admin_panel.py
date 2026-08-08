@@ -291,7 +291,10 @@ class AdminPanel:
                                    ('mouse',    '🖱', 'Mouse'),
                                    ('network',  '🌐', 'Network'),
                                    ('windows',  '🪟', 'Windows'),
-                                   ('usb',     '💾', 'USB')]:
+                                   ('usb',     '💾', 'USB'),
+                                   ('clipboard', '📋', 'Clip'),
+                                   ('vm_rdp', '🖥', 'VM/RDP'),
+                                   ('multi_monitor', '📺', 'Monitors')]:
             card = tk.Frame(ind_row, bg=C['surface'],
                             padx=12, pady=8,
                             highlightthickness=1,
@@ -1103,9 +1106,13 @@ class AdminPanel:
 
             dlg.destroy()
             self._active_profile_name = profile_name
-            self.sec.start_exam_mode(opts,
-                                     profile_name=profile_name,
-                                     timer_minutes=mins)
+            try:
+                self.sec.start_exam_mode(opts,
+                                         profile_name=profile_name,
+                                         timer_minutes=mins)
+            except RuntimeError as e:
+                messagebox.showerror('Hardware Check Failed', str(e), parent=self.window)
+                return
             self._start_btn.config(state=tk.DISABLED)
             self._stop_btn.config(state=tk.NORMAL)
             self._refresh_status()
@@ -1297,7 +1304,8 @@ class AdminPanel:
         # Indicators
         map_ = [('keyboard', 'hooks_active'), ('mouse', 'mouse_blocking'),
                 ('network', 'internet_blocked'), ('windows', 'window_protection'),
-                ('usb', 'usb_blocking')]
+                ('usb', 'usb_blocking'), ('clipboard', 'clipboard_blocked'),
+                ('vm_rdp', 'vm_rdp_detected'), ('multi_monitor', 'multi_monitor')]
         for key, syskey in map_:
             active = info.get(syskey, False)
             # Extract icon+label from existing text
@@ -1317,6 +1325,9 @@ class AdminPanel:
                 sel.get('mouse') and not info.get('mouse_blocking'),
                 sel.get('internet') and not info.get('internet_blocked'),
                 sel.get('windows') and not info.get('window_protection'),
+                sel.get('clipboard') and not info.get('clipboard_blocked'),
+                sel.get('vm_rdp') and info.get('vm_rdp_detected'),
+                sel.get('multi_monitor') and info.get('multi_monitor'),
             ])
             if threats == 0:
                 self._threat_label.config(
