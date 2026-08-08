@@ -63,6 +63,9 @@ class Config:
         'windows': True,
         'processes': True,
         'usb': True,
+        'clipboard': True,
+        'vm_rdp': True,
+        'multi_monitor': True,
     }
 
     # ── Network Blocking ─────────────────────────────────────────
