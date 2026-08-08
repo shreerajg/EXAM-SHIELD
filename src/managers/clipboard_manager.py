@@ -30,13 +30,16 @@ class ClipboardManager:
     def _clipboard_loop(self):
         while self.is_active:
             try:
-                # Associate clipboard with the current task (None = current task)
-                if ctypes.windll.user32.OpenClipboard(None):
-                    ctypes.windll.user32.EmptyClipboard()
-                    ctypes.windll.user32.CloseClipboard()
+                # Only attempt to clear if there is data on the clipboard.
+                # This prevents constant locking and high CPU usage.
+                if ctypes.windll.user32.CountClipboardFormats() > 0:
+                    # Associate clipboard with the current task (None = current task)
+                    if ctypes.windll.user32.OpenClipboard(None):
+                        ctypes.windll.user32.EmptyClipboard()
+                        ctypes.windll.user32.CloseClipboard()
             except Exception:
                 # Ignore failures if another process is currently holding the clipboard open
                 pass
             
-            # Clear every 1 second
-            time.sleep(1)
+            # Tighter interval for better protection, safely skipping if empty
+            time.sleep(0.5)

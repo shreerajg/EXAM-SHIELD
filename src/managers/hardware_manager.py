@@ -11,6 +11,10 @@ class HardwareManager:
     def __init__(self, db_manager):
         self.db = db_manager
         self.log = db_manager.logger
+        
+        # Cache static properties so we don't spawn wmic on every UI refresh
+        self._cached_is_vm = self._detect_virtual_machine()
+        self._cached_is_rdp = self._detect_rdp_session()
     
     def has_multiple_monitors(self) -> bool:
         """Returns True if more than one display monitor is detected."""
@@ -24,6 +28,9 @@ class HardwareManager:
 
     def is_rdp_session(self) -> bool:
         """Returns True if the current session is an RDP (Remote Desktop) session."""
+        return self._cached_is_rdp
+
+    def _detect_rdp_session(self) -> bool:
         try:
             # SM_REMOTESESSION = 0x1000
             is_rdp = ctypes.windll.user32.GetSystemMetrics(0x1000)
@@ -37,6 +44,9 @@ class HardwareManager:
         Attempts to detect if the OS is running inside a known Virtual Machine
         (VirtualBox, VMware, QEMU/KVM, Hyper-V).
         """
+        return self._cached_is_vm
+
+    def _detect_virtual_machine(self) -> bool:
         vm_indicators = [
             'virtualbox', 'vbox',
             'vmware',
