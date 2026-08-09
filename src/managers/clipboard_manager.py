@@ -28,13 +28,27 @@ class ClipboardManager:
         self.log.info("CLIPBOARD", "Clipboard protection stopped")
 
     def _clipboard_loop(self):
+        CF_UNICODETEXT = 13
         while self.is_active:
             try:
                 # Only attempt to clear if there is data on the clipboard.
-                # This prevents constant locking and high CPU usage.
                 if ctypes.windll.user32.CountClipboardFormats() > 0:
-                    # Associate clipboard with the current task (None = current task)
                     if ctypes.windll.user32.OpenClipboard(None):
+                        # Attempt to audit text before clearing
+                        try:
+                            if ctypes.windll.user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
+                                handle = ctypes.windll.user32.GetClipboardData(CF_UNICODETEXT)
+                                if handle:
+                                    ptr = ctypes.windll.kernel32.GlobalLock(handle)
+                                    if ptr:
+                                        text = ctypes.c_wchar_p(ptr).value
+                                        ctypes.windll.kernel32.GlobalUnlock(handle)
+                                        if text and str(text).strip():
+                                            preview = str(text).strip().replace('\n', ' ')[:50]
+                                            self.log.security("CLIPBOARD_BLOCKED", f"Blocked copy: '{preview}...'")
+                        except Exception as e:
+                            pass
+                            
                         ctypes.windll.user32.EmptyClipboard()
                         ctypes.windll.user32.CloseClipboard()
             except Exception:
