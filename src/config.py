@@ -54,6 +54,7 @@ class Config:
 
     # ── Admin Hotkey ─────────────────────────────────────────────
     ADMIN_ACCESS_KEY = 'ctrl+shift+y'
+    STEALTH_MODE_KEY = 'ctrl+shift+h'
 
     # ── Selective Blocking Defaults ──────────────────────────────
     SELECTIVE_BLOCKING = {
@@ -158,6 +159,27 @@ class Config:
         # Sidebar item active indicator
         'sidebar_active': '#00d4ff',
     }
+
+    # ── Theme Palettes ───────────────────────────────────────────
+    THEMES = {
+        'cyan': {
+            'primary': '#00d4ff', 'primary_dark': '#0099bb', 'primary_glow': '#00d4ff33',
+            'accent': '#7f5af0', 'accent_dark': '#6040d0', 'accent_glow': '#7f5af033',
+        },
+        'emerald': {
+            'primary': '#10b981', 'primary_dark': '#059669', 'primary_glow': '#10b98133',
+            'accent': '#3b82f6', 'accent_dark': '#2563eb', 'accent_glow': '#3b82f633',
+        },
+        'crimson': {
+            'primary': '#f43f5e', 'primary_dark': '#e11d48', 'primary_glow': '#f43f5e33',
+            'accent': '#f59e0b', 'accent_dark': '#d97706', 'accent_glow': '#f59e0b33',
+        },
+        'amethyst': {
+            'primary': '#a855f7', 'primary_dark': '#9333ea', 'primary_glow': '#a855f733',
+            'accent': '#ec4899', 'accent_dark': '#db2777', 'accent_glow': '#ec489933',
+        }
+    }
+    ACTIVE_THEME = 'cyan'
 
     # ── Fonts ────────────────────────────────────────────────────
     FONTS = {
