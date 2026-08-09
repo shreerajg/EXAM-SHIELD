@@ -765,6 +765,7 @@ class AdminPanel:
         self._build_mouse_settings(inner)
         self._build_network_settings(inner)
         self._build_allowed_sites_settings(inner)
+        self._build_theme_settings(inner)
         self._build_advanced_settings(inner)
         return pg
 
@@ -951,6 +952,29 @@ class AdminPanel:
         for t, cmd in [('Add',    self._add_allowed_site),
                        ('Remove', self._remove_allowed_site)]:
             styled_btn(btns, t, cmd, bg=C['surface']).pack(fill=tk.X, pady=2)
+
+    # ── Theme Settings ───────────────────────────────────────────
+    def _build_theme_settings(self, parent):
+        f = tk.LabelFrame(parent, text="🎨  Theme & Appearance",
+                           bg=C['bg'], fg=C['primary'],
+                           font=('Segoe UI', 10, 'bold'), padx=10, pady=10)
+        f.pack(fill=tk.X, padx=16, pady=(0, 16))
+        
+        tk.Label(f, text='Select Accent Theme (Applies on next restart):', bg=C['bg'],
+                 fg=C['text']).pack(anchor=tk.W, pady=(0, 4))
+        
+        self._theme_var = tk.StringVar(value=Config.ACTIVE_THEME)
+        themes = list(Config.THEMES.keys())
+        theme_cb = ttk.Combobox(f, textvariable=self._theme_var,
+                                values=themes, state='readonly', width=20)
+        theme_cb.pack(anchor=tk.W, pady=4)
+        
+        def apply_theme():
+            th = self._theme_var.get()
+            self.db.save_setting('active_theme', th)
+            self._toast(f"🎨 Theme '{th}' selected. Restart app to apply.", C['primary'])
+
+        styled_btn(f, 'Apply Theme', apply_theme, bg=C['surface']).pack(anchor=tk.W, pady=(4, 0))
 
     # ── Page: Logs ───────────────────────────────────────────
     def _build_logs(self):
