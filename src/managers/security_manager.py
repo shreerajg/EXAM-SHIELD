@@ -77,12 +77,16 @@ class SecurityManager:
         # Hardware Pre-flight checks
         sel = self.selective_blocking
         success, err_msg = self.hardware_manager.run_preflight_checks(
-            block_multi_monitor=sel.get('multi_monitor', True),
+            block_multi_monitor=False, # We don't abort, we blackout below
             detect_vm_rdp=sel.get('vm_rdp', True)
         )
         if not success:
             self.log.security("PREFLIGHT_FAIL", err_msg, blocked=True)
             raise RuntimeError(err_msg)
+
+        if sel.get('multi_monitor', True):
+            if self.admin_panel and hasattr(self.admin_panel, 'window'):
+                self.hardware_manager.blackout_secondary_monitors(self.admin_panel.window)
 
         # Store session metadata for the report
         self._session_profile   = profile_name
@@ -143,6 +147,7 @@ class SecurityManager:
         self.usb_manager.stop_blocking()
         self.window_manager.stop_window_protection()
         self.clipboard_manager.stop()
+        self.hardware_manager.clear_blackouts()
 
         # Stop watchdog FIRST so it doesn't fight clean-up
         self.watchdog_manager.stop()
