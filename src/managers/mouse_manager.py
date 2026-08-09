@@ -193,16 +193,22 @@ class MouseManager:
         if msg == WM_MOUSEMOVE and self.block_movement:
             data = ctypes.cast(lParam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
             x, y = data.pt.x, data.pt.y
-            if self._lock_pos is None:
-                self._lock_pos = (x, y)
-                return False   # let this first position through
-            lx, ly = self._lock_pos
-            if (x, y) != (lx, ly):
+            
+            # Bound to primary monitor (0, 0) to (w, h)
+            w = ctypes.windll.user32.GetSystemMetrics(0)
+            h = ctypes.windll.user32.GetSystemMetrics(1)
+            
+            new_x, new_y = x, y
+            if x < 0: new_x = 0
+            if x >= w: new_x = w - 1
+            if y < 0: new_y = 0
+            if y >= h: new_y = h - 1
+            
+            if (x, y) != (new_x, new_y):
                 self.log.security("BLOCKED_MOUSE",
-                                  f"Movement blocked at ({x},{y})",
+                                  f"Movement confined to primary monitor",
                                   blocked=True)
-                # Warp cursor back
-                ctypes.windll.user32.SetCursorPos(lx, ly)
+                ctypes.windll.user32.SetCursorPos(new_x, new_y)
                 return True
             return False
 
