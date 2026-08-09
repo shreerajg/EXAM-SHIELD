@@ -24,6 +24,13 @@ class ExamShield:
             self._request_admin()
             return
 
+        self.db = DatabaseManager()
+        
+        active_theme = self.db.get_setting('active_theme', 'cyan')
+        if active_theme in Config.THEMES:
+            Config.ACTIVE_THEME = active_theme
+            Config.COLORS.update(Config.THEMES[active_theme])
+
         self.root = tk.Tk()
         self.root.withdraw()   # hide until we fade in
         self.root.title(f"Exam Shield v{Config.VERSION}")
@@ -33,8 +40,6 @@ class ExamShield:
 
         C = Config.COLORS
         self.root.configure(bg=C['bg'])
-
-        self.db = DatabaseManager()
         self.log = ExamShieldLogger(self.db)
         self.security = None
         self.tray = None
