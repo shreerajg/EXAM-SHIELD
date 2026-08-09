@@ -95,6 +95,20 @@ class AdminPanel:
         self._build_ui()
         self._center()
         self._start_auto_refresh()
+        
+        try:
+            keyboard.add_hotkey(Config.STEALTH_MODE_KEY, self._toggle_stealth_mode)
+        except Exception:
+            pass
+
+    def _toggle_stealth_mode(self):
+        try:
+            if self.window.state() == 'withdrawn':
+                self.show()
+            else:
+                self.window.withdraw()
+        except Exception:
+            pass
 
     # ── Dark theme ───────────────────────────────────────────────
     def _apply_dark_theme(self):
@@ -314,6 +328,7 @@ class AdminPanel:
                                       self._show_lockdown_dialog,
                                       bg=C['success'], fg='#0a0a0a')
         self._start_btn.pack(side=tk.LEFT, padx=(0, 8))
+        self._pulse_button(self._start_btn, C['success'])
 
         self._stop_btn = styled_btn(btn_row, "🔓  END LOCKDOWN",
                                      self._stop_exam,
@@ -425,16 +440,54 @@ class AdminPanel:
     def _update_bar(self, bar_info, pct):
         w = bar_info.get('width', 130)
         bar_info['label'].config(text=f"{pct:.0f}%")
-        bar_info['canvas'].coords(bar_info['bar'], 0, 0, int(w * pct / 100), 6)
-        # Shift color based on load
-        c = bar_info['color']
-        if 'canvas' in bar_info:
-            if pct > 85:
-                bar_info['canvas'].itemconfig(bar_info['bar'], fill=C['danger'])
-            elif pct > 60:
-                bar_info['canvas'].itemconfig(bar_info['bar'], fill=C['warning'])
+        
+        target_w = int(w * pct / 100)
+        current_w = bar_info.get('current_w', target_w)
+        
+        def animate():
+            if not self.window.winfo_exists(): return
+            nonlocal current_w
+            if abs(target_w - current_w) <= 1:
+                current_w = target_w
             else:
-                bar_info['canvas'].itemconfig(bar_info['bar'], fill=c)
+                current_w += (target_w - current_w) * 0.2
+            
+            bar_info['canvas'].coords(bar_info['bar'], 0, 0, int(current_w), 6)
+            bar_info['current_w'] = current_w
+            
+            c = bar_info['color']
+            if 'canvas' in bar_info:
+                if pct > 85:
+                    bar_info['canvas'].itemconfig(bar_info['bar'], fill=C['danger'])
+                elif pct > 60:
+                    bar_info['canvas'].itemconfig(bar_info['bar'], fill=C['warning'])
+                else:
+                    bar_info['canvas'].itemconfig(bar_info['bar'], fill=c)
+            
+            if int(current_w) != target_w:
+                self.window.after(20, animate)
+                
+        animate()
+
+    def _pulse_button(self, btn, base_color):
+        import math
+        self._pulse_phase = getattr(self, '_pulse_phase', 0)
+        def pulse():
+            try:
+                if not btn.winfo_exists(): return
+                self._pulse_phase += 0.1
+                factor = 0.85 + 0.15 * math.sin(self._pulse_phase)
+                h = base_color.lstrip('#')
+                r,g,b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
+                r,g,b = int(r*factor), int(g*factor), int(b*factor)
+                c = f'#{r:02x}{g:02x}{b:02x}'
+                # Only update if button is not currently active/pressed or disabled
+                if btn.cget('state') == tk.NORMAL:
+                    btn.config(bg=c)
+                btn.after(50, pulse)
+            except Exception:
+                pass
+        pulse()
 
     # ── Page: Live Monitor ───────────────────────────────────────
     def _build_monitor(self):
