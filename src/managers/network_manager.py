@@ -82,8 +82,14 @@ class NetworkManager:
 
     def _write_blocked_hosts(self):
         sites = Config.BLOCKED_WEBSITES
-        lines = [self._MARKER_START]
+        expanded_sites = set()
         for site in sites:
+            expanded_sites.add(site)
+            expanded_sites.add(f"www.{site}")
+            expanded_sites.add(f"m.{site}")
+            
+        lines = [self._MARKER_START]
+        for site in sorted(expanded_sites):
             lines.append(f"127.0.0.1 {site}")
             lines.append(f"::1 {site}")
         lines.append(self._MARKER_END)
