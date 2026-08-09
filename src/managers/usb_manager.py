@@ -134,12 +134,6 @@ Set-ItemProperty -Path $key -Name "WriteProtect" -Value {wp_val} -ErrorAction Si
             )
         except Exception as e:
             self.log.error("USB_CMD", f"Failed to execute USB command: {e}")
-            subprocess.run(
-                ['powershell', '-Command', ps_script],
-                capture_output=True, timeout=15
-            )
-        except Exception as e:
-            self.log.error("USB_CMD", f"Failed to execute USB command: {e}")
     
     def _monitor_loop(self):
         try:
