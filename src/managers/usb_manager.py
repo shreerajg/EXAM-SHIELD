@@ -94,39 +94,46 @@ class USBManager:
 
     # ── Registry Guard (H4) ────────────────────────────────────────
     def _registry_guard_loop(self):
-        """Check every 3 s that USBSTOR\\Start == 4 (disabled)."""
-        reg_path = r"SYSTEM\CurrentControlSet\Services\USBSTOR"
+        """Check every 3 s that WriteProtect == 1."""
+        reg_path = r"SYSTEM\CurrentControlSet\Control\StorageDevicePolicies"
         while self.is_active and not self._stop_evt.is_set():
             try:
                 key = winreg.OpenKey(
                     winreg.HKEY_LOCAL_MACHINE, reg_path,
                     0, winreg.KEY_SET_VALUE | winreg.KEY_QUERY_VALUE
                 )
-                val, _ = winreg.QueryValueEx(key, "Start")
-                if val != 4:
-                    winreg.SetValueEx(key, "Start", 0, winreg.REG_DWORD, 4)
+                val, _ = winreg.QueryValueEx(key, "WriteProtect")
+                if val != 1:
+                    winreg.SetValueEx(key, "WriteProtect", 0, winreg.REG_DWORD, 1)
                     self.log.warning("USB_REG_GUARD",
-                                     "Re-applied USBSTOR registry block")
+                                     "Re-applied USB WriteProtect registry block")
                 winreg.CloseKey(key)
             except Exception:
-                pass
+                try:
+                    key = winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, reg_path)
+                    winreg.SetValueEx(key, "WriteProtect", 0, winreg.REG_DWORD, 1)
+                    winreg.CloseKey(key)
+                except Exception:
+                    pass
             self._stop_evt.wait(3)
 
     def _run_usb_command(self, action):
         try:
-            reg_val = 4 if action == 'disable' else 3
-            cmdlet = "Disable-PnpDevice" if action == 'disable' else "Enable-PnpDevice"
+            wp_val = 1 if action == 'disable' else 0
             
             ps_script = f'''
-# Modify USBSTOR registry key to prevent new mass storage devices from mounting
-Set-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\USBSTOR" -Name "Start" -Value {reg_val} -ErrorAction SilentlyContinue
-
-# Find and disable/enable existing USB Mass Storage devices
-$devices = Get-PnpDevice -Class USB | Where-Object {{$_.FriendlyName -match "Mass|Storage"}}
-foreach ($dev in $devices) {{
-    {cmdlet} -InstanceName $dev.InstanceName -Confirm:$false -ErrorAction SilentlyContinue
+$key = "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\StorageDevicePolicies"
+if (-not (Test-Path $key)) {{
+    New-Item -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control" -Name "StorageDevicePolicies" -ErrorAction SilentlyContinue | Out-Null
 }}
+Set-ItemProperty -Path $key -Name "WriteProtect" -Value {wp_val} -ErrorAction SilentlyContinue
 '''
+            subprocess.run(
+                ['powershell', '-Command', ps_script],
+                capture_output=True, timeout=15
+            )
+        except Exception as e:
+            self.log.error("USB_CMD", f"Failed to execute USB command: {e}")
             subprocess.run(
                 ['powershell', '-Command', ps_script],
                 capture_output=True, timeout=15
