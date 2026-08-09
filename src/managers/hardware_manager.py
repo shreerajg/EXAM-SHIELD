@@ -11,6 +11,7 @@ class HardwareManager:
     def __init__(self, db_manager):
         self.db = db_manager
         self.log = db_manager.logger
+        self.blackout_windows = []
         
         # Cache static properties so we don't spawn wmic on every UI refresh
         self._cached_is_vm = self._detect_virtual_machine()
@@ -86,8 +87,54 @@ class HardwareManager:
             pass
 
         return False
+        
+    def blackout_secondary_monitors(self, tk_root):
+        """Spawns black fullscreen windows on all secondary monitors."""
+        self.clear_blackouts()
+        if not self.has_multiple_monitors():
+            return
+            
+        try:
+            import ctypes
+            import ctypes.wintypes
+            user32 = ctypes.windll.user32
+            
+            monitors = []
+            MonitorEnumProc = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.POINTER(ctypes.wintypes.RECT), ctypes.c_double)
+            
+            def callback(hMonitor, hdcMonitor, lprcMonitor, dwData):
+                r = lprcMonitor.contents
+                monitors.append((r.left, r.top, r.right - r.left, r.bottom - r.top))
+                return 1
+                
+            user32.EnumDisplayMonitors(None, None, MonitorEnumProc(callback), 0)
+            
+            import tkinter as tk
+            for (x, y, w, h) in monitors:
+                # Primary monitor is typically at (0, 0)
+                if x == 0 and y == 0:
+                    continue
+                    
+                top = tk.Toplevel(tk_root)
+                top.geometry(f"{w}x{h}+{x}+{y}")
+                top.overrideredirect(True)
+                top.configure(bg="black")
+                top.attributes("-topmost", True)
+                self.blackout_windows.append(top)
+                
+            self.log.info("HARDWARE", f"Blacked out {len(self.blackout_windows)} secondary monitors.")
+        except Exception as e:
+            self.log.error("HARDWARE", f"Failed to blackout monitors: {e}")
+            
+    def clear_blackouts(self):
+        for w in self.blackout_windows:
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        self.blackout_windows.clear()
 
-    def run_preflight_checks(self, block_multi_monitor=True, detect_vm_rdp=True) -> tuple[bool, str]:
+    def run_preflight_checks(self, block_multi_monitor=False, detect_vm_rdp=True) -> tuple[bool, str]:
         """
         Runs hardware checks. Returns (success, error_message).
         If success is False, the exam mode should be aborted.
