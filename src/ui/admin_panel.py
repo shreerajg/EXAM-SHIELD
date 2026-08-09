@@ -183,6 +183,10 @@ class AdminPanel:
         sidebar = tk.Frame(body, bg=C['sidebar'], width=180)
         sidebar.pack(side=tk.LEFT, fill=tk.Y)
         sidebar.pack_propagate(False)
+        
+        self._sliding_indicator = tk.Frame(sidebar, bg=C['primary'], width=4, height=44)
+        self._sliding_indicator.place(x=0, y=-100)
+        self._indicator_y = 0
 
         # Content area
         self._content = tk.Frame(body, bg=C['bg'])
@@ -203,25 +207,31 @@ class AdminPanel:
             anchor=tk.W, padx=14, pady=(20, 6))
 
         self._nav_btns = {}
-        for key, icon, label in nav_items:
+        for idx, (key, icon, label) in enumerate(nav_items):
             btn_frame = tk.Frame(sidebar, bg=C['sidebar'])
             btn_frame.pack(fill=tk.X, pady=1)
-            indicator = tk.Frame(btn_frame, bg=C['sidebar'], width=4)
-            indicator.pack(side=tk.LEFT, fill=tk.Y)
+            
             btn = tk.Label(btn_frame, text=f"  {icon}  {label}",
                            font=('Segoe UI', 10), bg=C['sidebar'],
                            fg=C['text_dim'], cursor='hand2',
                            anchor=tk.W, pady=12)
-            btn.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4,0))
+            
             btn.bind('<Button-1>', lambda e, k=key: self._nav_to(k))
-            btn.bind('<Enter>', lambda e, b=btn, i=indicator:
-                     (b.config(bg=C['sidebar_hover'], fg=C['text']),
-                      i.config(bg=C['border_bright'])))
-            btn_frame.bind('<Enter>', lambda e, b=btn, i=indicator:
-                           (b.config(bg=C['sidebar_hover'], fg=C['text']),
-                            i.config(bg=C['border_bright'])))
-            self._nav_btns[key] = {'btn': btn, 'ind': indicator,
-                                    'frame': btn_frame}
+            
+            def on_enter(e, b=btn, k=key):
+                if self._active_page.get() != k:
+                    b.config(bg=C['sidebar_hover'], fg=C['text'])
+            def on_leave(e, b=btn, k=key):
+                if self._active_page.get() != k:
+                    b.config(bg=C['sidebar'], fg=C['text_dim'])
+            
+            btn.bind('<Enter>', on_enter)
+            btn.bind('<Leave>', on_leave)
+            btn_frame.bind('<Enter>', on_enter)
+            btn_frame.bind('<Leave>', on_leave)
+            
+            self._nav_btns[key] = {'btn': btn, 'frame': btn_frame, 'idx': idx}
 
         # Build all page frames (hidden by default)
         self._pages = {}
@@ -253,15 +263,37 @@ class AdminPanel:
             pg.pack_forget()
         # Reset all nav items
         for k, d in self._nav_btns.items():
-            d['btn'].config(bg=C['sidebar'], fg=C['text_dim'])
-            d['ind'].config(bg=C['sidebar'])
-            d['frame'].config(bg=C['sidebar'])
+            if k != key:
+                d['btn'].config(bg=C['sidebar'], fg=C['text_dim'])
+                d['frame'].config(bg=C['sidebar'])
+        
         # Show selected
         self._pages[key].pack(fill=tk.BOTH, expand=True)
-        self._nav_btns[key]['btn'].config(bg=C['sidebar_hover'],
-                                           fg=C['primary'])
-        self._nav_btns[key]['ind'].config(bg=C['primary'])
+        self._nav_btns[key]['btn'].config(bg=C['sidebar_hover'], fg=C['primary'])
         self._active_page.set(key)
+        
+        # Animate sliding indicator
+        self.window.update_idletasks()
+        target_y = self._nav_btns[key]['frame'].winfo_y()
+        if target_y <= 0:
+            target_y = 36 + self._nav_btns[key]['idx'] * 46
+            
+        current_y = getattr(self, '_indicator_y', target_y)
+        
+        def slide():
+            if not self.window.winfo_exists(): return
+            nonlocal current_y
+            if abs(target_y - current_y) <= 1:
+                current_y = target_y
+                self._sliding_indicator.place(y=current_y)
+                self._indicator_y = current_y
+            else:
+                current_y += (target_y - current_y) * 0.35
+                self._sliding_indicator.place(y=int(current_y))
+                self._indicator_y = current_y
+                self.window.after(16, slide)
+                
+        slide()
 
     # ── Page: Dashboard ──────────────────────────────────────────
     def _build_dashboard(self):
@@ -2066,9 +2098,19 @@ class AdminPanel:
             self.window.withdraw()
 
     def show(self):
+        self.window.attributes("-alpha", 0.0)
         self.window.deiconify()
         self.window.lift()
         self._refresh_status()
         self._load_keys_list()
         self._load_website_list()
         self._pull_mouse_flags_from_manager()
+        
+        # Fade in animation
+        def fade(alpha):
+            if not self.window.winfo_exists(): return
+            if alpha < 1.0:
+                alpha += 0.08
+                self.window.attributes("-alpha", min(alpha, 1.0))
+                self.window.after(16, lambda: fade(alpha))
+        fade(0.0)
