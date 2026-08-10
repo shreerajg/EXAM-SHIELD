@@ -41,29 +41,59 @@ class AudioManager:
             samplerate = 44100
             duration = Config.AUDIO_MONITOR_INTERVAL_SEC
             
+            # Check if there's any default input device
+            try:
+                device_info = sd.query_devices(kind='input')
+                if not device_info:
+                    self.log.error("AUDIO", "No default audio input device found. Audio monitoring disabled.")
+                    self.is_active = False
+                    return
+            except Exception as e:
+                self.log.error("AUDIO", f"Failed to query audio devices: {e}. Audio monitoring disabled.")
+                self.is_active = False
+                return
+
+            error_count = 0
             while self.is_active and not self._stop_event.is_set():
-                # Record for a short duration
-                myrecording = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1, dtype='float64')
-                sd.wait() # Wait until recording is finished
-                
-                # Calculate RMS
-                rms = np.sqrt(np.mean(myrecording**2))
-                
-                # Convert RMS to a somewhat arbitrary 0-100 scale for thresholding
-                # This depends heavily on microphone sensitivity.
-                # Just multiplying by a factor to make it readable in config
-                noise_level = rms * 1000 
-                
-                if noise_level > Config.AUDIO_THRESHOLD:
-                    self.sustained_noise_count += 1
-                    if self.sustained_noise_count >= Config.AUDIO_SUSTAINED_TOLERANCE:
-                        self._trigger_violation(noise_level)
+                try:
+                    # Record for a short duration
+                    myrecording = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1, dtype='float64')
+                    sd.wait() # Wait until recording is finished
+                    
+                    # Reset error count on success
+                    error_count = 0
+                    
+                    # Calculate RMS
+                    rms = np.sqrt(np.mean(myrecording**2))
+                    
+                    # Convert RMS to a somewhat arbitrary 0-100 scale for thresholding
+                    # This depends heavily on microphone sensitivity.
+                    # Just multiplying by a factor to make it readable in config
+                    noise_level = rms * 1000 
+                    
+                    if noise_level > Config.AUDIO_THRESHOLD:
+                        self.sustained_noise_count += 1
+                        if self.sustained_noise_count >= Config.AUDIO_SUSTAINED_TOLERANCE:
+                            self._trigger_violation(noise_level)
+                            self.sustained_noise_count = 0
+                    else:
                         self.sustained_noise_count = 0
-                else:
-                    self.sustained_noise_count = 0
+                        
+                except sd.PortAudioError as pe:
+                    error_count += 1
+                    self.log.error("AUDIO", f"Audio recording error: {pe} (Attempt {error_count})")
+                    if error_count > 3:
+                        self.log.error("AUDIO", "Too many audio failures. Stopping audio monitor.")
+                        break
+                    self._stop_event.wait(duration)
+                except Exception as loop_e:
+                    self.log.error("AUDIO", f"Unexpected error in audio loop: {loop_e}")
+                    self._stop_event.wait(duration)
                     
         except Exception as e:
-            self.log.error("AUDIO", f"Error in audio monitor loop: {e}")
+            self.log.error("AUDIO", f"Fatal error in audio monitor: {e}")
+        finally:
+            self.is_active = False
 
     def _trigger_violation(self, level):
         msg = f"High ambient noise detected (Level: {level:.1f})"
