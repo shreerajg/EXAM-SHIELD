@@ -42,22 +42,55 @@ class WebcamManager:
         self.log.info("WEBCAM", "Webcam monitoring stopped")
             
     def _monitor_loop(self):
+        cap = None
         try:
-            cap = cv2.VideoCapture(0)
+            # Try to find a working camera index
+            camera_index = -1
+            for i in range(3): # Check indices 0, 1, 2
+                temp_cap = cv2.VideoCapture(i, cv2.CAP_DSHOW) # Using DirectShow on Windows is often more stable
+                if temp_cap.isOpened():
+                    camera_index = i
+                    temp_cap.release()
+                    break
+            
+            if camera_index == -1:
+                # Try without CAP_DSHOW just in case
+                for i in range(3):
+                    temp_cap = cv2.VideoCapture(i)
+                    if temp_cap.isOpened():
+                        camera_index = i
+                        temp_cap.release()
+                        break
+
+            if camera_index == -1:
+                self.log.error("WEBCAM", "No usable webcam found. Webcam monitoring disabled.")
+                self.is_active = False
+                return
+
+            cap = cv2.VideoCapture(camera_index)
             # Give camera time to warm up
             time.sleep(1)
             
             interval = Config.WEBCAM_MONITOR_INTERVAL_SEC
             
+            error_count = 0
             while self.is_active and not self._stop_event.is_set():
                 ret, frame = cap.read()
                 if not ret:
-                    self.log.error("WEBCAM", "Failed to grab frame from webcam")
+                    error_count += 1
+                    self.log.error("WEBCAM", f"Failed to grab frame (Attempt {error_count})")
+                    if error_count > 5:
+                        self.log.error("WEBCAM", "Too many camera failures. Stopping webcam monitor.")
+                        break
                     self._stop_event.wait(interval)
                     continue
+                
+                # Reset error count on successful read
+                error_count = 0
                     
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+                # Optimize parameters for stability (scaleFactor, minNeighbors)
+                faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=(40, 40))
                 
                 num_faces = len(faces)
                 
@@ -77,9 +110,12 @@ class WebcamManager:
                     
                 self._stop_event.wait(interval)
                 
-            cap.release()
         except Exception as e:
             self.log.error("WEBCAM", f"Error in webcam monitor loop: {e}")
+        finally:
+            if cap and cap.isOpened():
+                cap.release()
+            self.is_active = False
 
     def _trigger_violation(self, reason):
         msg = "Face not detected" if reason == "absence" else "Multiple faces detected"
