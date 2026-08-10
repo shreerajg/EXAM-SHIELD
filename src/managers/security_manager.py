@@ -16,6 +16,8 @@ from src.managers.report_manager import ReportManager
 from src.managers.watchdog_manager import WatchdogManager
 from src.managers.hardware_manager import HardwareManager
 from src.managers.clipboard_manager import ClipboardManager
+from src.managers.webcam_manager import WebcamManager
+from src.managers.audio_manager import AudioManager
 from src.logger import ExamShieldLogger
 
 
@@ -38,6 +40,11 @@ class SecurityManager:
         self.watchdog_manager   = WatchdogManager(db_manager)
         self.hardware_manager   = HardwareManager(db_manager)
         self.clipboard_manager  = ClipboardManager(db_manager)
+        self.webcam_manager     = WebcamManager(db_manager)
+        self.audio_manager      = AudioManager(db_manager)
+        
+        self.webcam_manager.set_security_manager(self)
+        self.audio_manager.set_security_manager(self)
 
         # Thread control
         self._proc_stop   = threading.Event()
@@ -51,6 +58,7 @@ class SecurityManager:
         self.breach_counts: dict[str, int] = {
             'keyboard': 0, 'network': 0,
             'processes': 0, 'usb': 0, 'windows': 0,
+            'webcam': 0, 'audio': 0,
         }
 
         # ── Active session metadata ────────────────────────────────
@@ -111,6 +119,10 @@ class SecurityManager:
             self.window_manager.start_window_protection()
         if sel.get('clipboard', True):
             self.clipboard_manager.start()
+        if sel.get('webcam', True):
+            self.webcam_manager.start()
+        if sel.get('audio', True):
+            self.audio_manager.start()
 
         # Screenshot monitoring (always during lockdown)
         self.screenshot_manager.start(session_label=profile_name or "exam")
@@ -147,6 +159,8 @@ class SecurityManager:
         self.usb_manager.stop_blocking()
         self.window_manager.stop_window_protection()
         self.clipboard_manager.stop()
+        self.webcam_manager.stop()
+        self.audio_manager.stop()
         self.hardware_manager.clear_blackouts()
 
         # Stop watchdog FIRST so it doesn't fight clean-up
@@ -296,6 +310,8 @@ class SecurityManager:
                 'usb_blocking':     self.usb_manager.is_active,
                 'window_protection':self.window_manager.is_active,
                 'clipboard_blocked':self.clipboard_manager.is_active,
+                'webcam_active':    self.webcam_manager.is_active,
+                'audio_active':     self.audio_manager.is_active,
                 'vm_rdp_clear':     not (self.hardware_manager.is_virtual_machine() or self.hardware_manager.is_rdp_session()),
                 'single_monitor':   not self.hardware_manager.has_multiple_monitors(),
                 'breach_counts':    dict(self.breach_counts),
