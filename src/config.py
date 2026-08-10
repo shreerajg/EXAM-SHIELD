@@ -21,6 +21,15 @@ class Config:
     # ── Screenshot Monitoring ─────────────────────────────────────
     SCREENSHOT_INTERVAL_SEC = 60    # capture every N seconds during lockdown (overridable from Settings UI)
 
+    # ── Webcam Monitoring ─────────────────────────────────────────
+    WEBCAM_MONITOR_INTERVAL_SEC = 5 # check webcam every N seconds
+    WEBCAM_FACE_ABSENCE_TOLERANCE = 3 # number of consecutive checks without a face before alerting
+
+    # ── Audio Monitoring ──────────────────────────────────────────
+    AUDIO_MONITOR_INTERVAL_SEC = 2
+    AUDIO_THRESHOLD = 50.0 # RMS threshold for detecting speech/noise
+    AUDIO_SUSTAINED_TOLERANCE = 3 # number of consecutive noisy chunks before alerting
+
     # ── Login Security ────────────────────────────────────────────
     LOGIN_MAX_ATTEMPTS  = 5    # failed attempts before lockout
     LOGIN_LOCKOUT_SEC   = 30   # lockout duration in seconds
