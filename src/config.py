@@ -76,6 +76,8 @@ class Config:
         'clipboard': True,
         'vm_rdp': True,
         'multi_monitor': True,
+        'webcam': True,
+        'audio': True,
     }
 
     # ── Network Blocking ─────────────────────────────────────────
