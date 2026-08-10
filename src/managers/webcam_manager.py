@@ -1,0 +1,100 @@
+"""
+ExamShield v1.2.0 - Webcam Manager
+Monitors webcam for face presence and absence during the exam.
+"""
+import cv2
+import threading
+import time
+from src.config import Config
+
+class WebcamManager:
+    def __init__(self, db_manager):
+        self.db = db_manager
+        self.log = db_manager.logger
+        self.is_active = False
+        self._thread = None
+        self._stop_event = threading.Event()
+        self.absence_count = 0
+        self.multiple_face_count = 0
+        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        
+        # We need a reference to security manager or admin panel to trigger violations.
+        self.security_manager = None
+    
+    def set_security_manager(self, sm):
+        self.security_manager = sm
+        
+    def start(self):
+        if self.is_active: return
+        self.is_active = True
+        self._stop_event.clear()
+        self.absence_count = 0
+        self.multiple_face_count = 0
+        self._thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self._thread.start()
+        self.log.info("WEBCAM", "Webcam monitoring started")
+        
+    def stop(self):
+        self.is_active = False
+        self._stop_event.set()
+        if self._thread:
+            self._thread = None
+        self.log.info("WEBCAM", "Webcam monitoring stopped")
+            
+    def _monitor_loop(self):
+        try:
+            cap = cv2.VideoCapture(0)
+            # Give camera time to warm up
+            time.sleep(1)
+            
+            interval = Config.WEBCAM_MONITOR_INTERVAL_SEC
+            
+            while self.is_active and not self._stop_event.is_set():
+                ret, frame = cap.read()
+                if not ret:
+                    self.log.error("WEBCAM", "Failed to grab frame from webcam")
+                    self._stop_event.wait(interval)
+                    continue
+                    
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+                
+                num_faces = len(faces)
+                
+                if num_faces == 0:
+                    self.absence_count += 1
+                    if self.absence_count >= Config.WEBCAM_FACE_ABSENCE_TOLERANCE:
+                        self._trigger_violation("absence")
+                        self.absence_count = 0 # reset after trigger
+                elif num_faces > 1:
+                    self.multiple_face_count += 1
+                    if self.multiple_face_count >= Config.WEBCAM_FACE_ABSENCE_TOLERANCE:
+                        self._trigger_violation("multiple_faces")
+                        self.multiple_face_count = 0
+                else:
+                    self.absence_count = 0
+                    self.multiple_face_count = 0
+                    
+                self._stop_event.wait(interval)
+                
+            cap.release()
+        except Exception as e:
+            self.log.error("WEBCAM", f"Error in webcam monitor loop: {e}")
+
+    def _trigger_violation(self, reason):
+        msg = "Face not detected" if reason == "absence" else "Multiple faces detected"
+        self.log.security("WEBCAM_VIOLATION", msg, blocked=True)
+        if self.security_manager:
+            # We can use the security manager's breach counter logic
+            if 'webcam' not in self.security_manager.breach_counts:
+                self.security_manager.breach_counts['webcam'] = 0
+            self.security_manager.breach_counts['webcam'] += 1
+            self.security_manager.screenshot_manager.capture_violation(reason=f"webcam_{reason}")
+            
+            panel = self.security_manager.admin_panel
+            if panel and hasattr(panel, 'window'):
+                try:
+                    panel.window.after(0, panel.update_breach_counter)
+                    panel.window.after(0, lambda m=msg: panel._toast(f"📷  {m}", '#ff4757') if hasattr(panel, '_toast') else None)
+                except Exception:
+                    pass
