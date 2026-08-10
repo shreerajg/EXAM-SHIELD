@@ -340,7 +340,9 @@ class AdminPanel:
                                    ('usb',     '💾', 'USB'),
                                    ('clipboard', '📋', 'Clip'),
                                    ('vm_rdp', '🖥', 'VM/RDP'),
-                                   ('multi_monitor', '📺', 'Monitors')]:
+                                   ('multi_monitor', '📺', 'Monitors'),
+                                   ('webcam', '📷', 'Webcam'),
+                                   ('audio', '🎤', 'Audio')]:
             card = tk.Frame(ind_row, bg=C['surface'],
                             padx=12, pady=8,
                             highlightthickness=1,
@@ -386,6 +388,8 @@ class AdminPanel:
             ('network',   '🌐', 'Network\nBlocked'),
             ('usb',       '💾', 'USB\nEvents'),
             ('windows',   '🪟', 'Window\nAttempts'),
+            ('webcam',    '📷', 'Face\nAnomalies'),
+            ('audio',     '🎤', 'Audio\nAnomalies'),
         ]:
             cf = tk.Frame(breach_row, bg=C['surface'],
                           padx=14, pady=10,
@@ -1114,6 +1118,10 @@ class AdminPanel:
              'Block Virtual Machines and Remote Desktop'),
             ('multi_monitor', '📺', 'Multi-Monitor Block',
              'Require disconnecting secondary displays'),
+            ('webcam',    '📷', 'Webcam Proctoring',
+             'Monitor face presence and multiple faces via webcam.'),
+            ('audio',     '🎤', 'Audio Proctoring',
+             'Monitor environment for excessive noise or talking.'),
         ]
         sel_vars: dict[str, tk.BooleanVar] = {}
         for key, icon, title, desc in modules:
@@ -1414,7 +1422,8 @@ class AdminPanel:
         map_ = [('keyboard', 'hooks_active'), ('mouse', 'mouse_blocking'),
                 ('network', 'internet_blocked'), ('windows', 'window_protection'),
                 ('usb', 'usb_blocking'), ('clipboard', 'clipboard_blocked'),
-                ('vm_rdp', 'vm_rdp_clear'), ('multi_monitor', 'single_monitor')]
+                ('vm_rdp', 'vm_rdp_clear'), ('multi_monitor', 'single_monitor'),
+                ('webcam', 'webcam_active'), ('audio', 'audio_active')]
         for key, syskey in map_:
             active = info.get(syskey, False)
             # Extract icon+label from existing text
@@ -1437,6 +1446,8 @@ class AdminPanel:
                 sel.get('clipboard') and not info.get('clipboard_blocked'),
                 sel.get('vm_rdp') and not info.get('vm_rdp_clear'),
                 sel.get('multi_monitor') and not info.get('single_monitor'),
+                sel.get('webcam') and not info.get('webcam_active'),
+                sel.get('audio') and not info.get('audio_active'),
             ])
             if threats == 0:
                 self._threat_label.config(
