@@ -1,4 +1,4 @@
-# 🛡️ ExamShield v1.0
+# 🛡️ ExamShield v1.3
 
 <p align="center">
   <em>A Secure Exam Browser and Proctoring System built with Python & Tkinter.</em>
@@ -32,7 +32,7 @@
 
 1. **Clone the repository** (if applicable) or download the source code:
    ```bash
-   git clone https://github.com/yourusername/ExamShield.git
+   git clone https://github.com/shreerajg/ExamShield.git
    cd ExamShield
    ```
 
