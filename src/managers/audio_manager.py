@@ -3,9 +3,14 @@ ExamShield v1.2.0 - Audio Manager
 Monitors ambient audio to detect talking or excessive noise during the exam.
 """
 import threading
-import sounddevice as sd
-import numpy as np
 from src.config import Config
+
+try:
+    import sounddevice as sd
+    import numpy as np
+    AUDIO_AVAILABLE = True
+except ImportError:
+    AUDIO_AVAILABLE = False
 
 class AudioManager:
     def __init__(self, db_manager):
@@ -21,6 +26,10 @@ class AudioManager:
         self.security_manager = sm
 
     def start(self):
+        if not AUDIO_AVAILABLE:
+            self.log.error("AUDIO", "Dependencies missing (sounddevice/numpy). Audio monitoring disabled.")
+            return
+            
         if self.is_active: return
         self.is_active = True
         self._stop_event.clear()

@@ -2,10 +2,15 @@
 ExamShield v1.2.0 - Webcam Manager
 Monitors webcam for face presence and absence during the exam.
 """
-import cv2
 import threading
 import time
 from src.config import Config
+
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
 
 class WebcamManager:
     def __init__(self, db_manager):
@@ -16,8 +21,13 @@ class WebcamManager:
         self._stop_event = threading.Event()
         self.absence_count = 0
         self.multiple_face_count = 0
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         
+        if CV2_AVAILABLE:
+            self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        else:
+            self.face_cascade = None
+        
+
         # We need a reference to security manager or admin panel to trigger violations.
         self.security_manager = None
     
@@ -25,6 +35,10 @@ class WebcamManager:
         self.security_manager = sm
         
     def start(self):
+        if not CV2_AVAILABLE:
+            self.log.error("WEBCAM", "OpenCV not installed. Webcam monitoring disabled.")
+            return
+            
         if self.is_active: return
         self.is_active = True
         self._stop_event.clear()
