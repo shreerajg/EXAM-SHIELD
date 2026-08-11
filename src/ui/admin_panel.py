@@ -847,7 +847,7 @@ class AdminPanel:
             'middle':   tk.BooleanVar(value=True),
             'double':   tk.BooleanVar(value=False),
             'side':     tk.BooleanVar(value=True),
-            'movement': tk.BooleanVar(value=False),
+            'scroll':   tk.BooleanVar(value=False),
         }
         options = [
             ('left',     '🖱  Left Click',        'Block primary (left) mouse button'),
@@ -855,7 +855,7 @@ class AdminPanel:
             ('middle',   '🖱  Middle Click',      'Block scroll-wheel click'),
             ('double',   '🖱  Double Click',      'Suppress rapid double-clicks (400 ms window)'),
             ('side',     '🖱  Side / X Buttons',  'Block X1, X2, back/forward buttons'),
-            ('movement', '🔒  Block All Movement','Lock cursor in place — student cannot move mouse'),
+            ('scroll',   '↕️  Scroll Wheel',      'Block mouse scrolling'),
         ]
         grid = tk.Frame(f, bg=C['bg'])
         grid.pack(fill=tk.X, pady=(0, 10))
