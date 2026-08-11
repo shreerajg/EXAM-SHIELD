@@ -1343,37 +1343,97 @@ class AdminPanel:
         except Exception:
             pass
 
-    # ── Topmost / Anti-Minimize Guard (H6) ─────────────────────────
+    # ── Topmost / Anti-Minimize Guard ──────────────────────────────────────
     def _enforce_topmost(self):
-        """Pin admin panel on top, strip Win32 title bar buttons, install guards."""
+        """
+        Full lockdown of the admin panel window:
+          • Tk: topmost + block WM_DELETE_WINDOW + <Unmap> handler
+          • Win32: strip WS_CAPTION|WS_THICKFRAME|WS_SYSMENU|WS_MIN/MAXIMIZEBOX
+                   so no OS-drawn ×, no Snap Layout, no resize affordances.
+          • Periodic re-apply timer: re-strips every 2 s because DWM
+            composition events can silently restore styles.
+          • Registers HWND as exempt in window_manager so it's never
+            touched by the global enforcement loop.
+        """
         try:
             self.window.attributes('-topmost', True)
             self.window.deiconify()
             self.window.lift()
-            # Block WM_DELETE_WINDOW
             self.window.protocol('WM_DELETE_WINDOW', self._on_close_locked)
-            # Bind iconify to immediately restore
             self.window.bind('<Unmap>', self._on_unmap_locked)
+        except Exception:
+            pass
 
-            # ── Win32: strip minimize/maximize/close from admin panel HWND ──
+        # Win32 strip + exempt registration
+        self._win32_strip_admin()
+
+        # Periodic re-apply (DWM can restore styles silently)
+        self._schedule_topmost_reapply()
+
+    def _win32_strip_admin(self):
+        """Strip all title-bar Win32 styles from admin panel HWND."""
+        try:
+            import ctypes
+            hwnd = self.window.winfo_id()
+            if not hwnd:
+                return
+            GWL_STYLE      = -16
+            WS_CAPTION     = 0x00C00000
+            WS_THICKFRAME  = 0x00040000
+            WS_MINIMIZEBOX = 0x00020000
+            WS_MAXIMIZEBOX = 0x00010000
+            WS_SYSMENU     = 0x00080000
+            STRIP = WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU
+            user32 = ctypes.windll.user32
+            style  = user32.GetWindowLongPtrW(hwnd, GWL_STYLE)
+            user32.SetWindowLongPtrW(hwnd, GWL_STYLE, style & ~STRIP)
+            # FRAMECHANGED + keep position/size
+            SWP = 0x0002 | 0x0001 | 0x0004 | 0x0020  # NOMOVE|NOSIZE|NOZORDER|FRAMECHANGED
+            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP)
+            # Exempt this HWND from global window enforcement loop
+            self.sec.window_manager.add_exempt_hwnd(hwnd)
+        except Exception:
+            pass
+
+    def _win32_restore_admin(self):
+        """Restore default title-bar styles on admin panel HWND after lockdown."""
+        try:
+            import ctypes
+            hwnd = self.window.winfo_id()
+            if not hwnd:
+                return
+            GWL_STYLE      = -16
+            # Standard dialog-style window: caption + thick frame + sysmenu
+            WS_CAPTION     = 0x00C00000
+            WS_THICKFRAME  = 0x00040000
+            WS_MINIMIZEBOX = 0x00020000
+            WS_MAXIMIZEBOX = 0x00010000
+            WS_SYSMENU     = 0x00080000
+            RESTORE = WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU
+            user32 = ctypes.windll.user32
+            style  = user32.GetWindowLongPtrW(hwnd, GWL_STYLE)
+            user32.SetWindowLongPtrW(hwnd, GWL_STYLE, style | RESTORE)
+            SWP = 0x0002 | 0x0001 | 0x0004 | 0x0020
+            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP)
+        except Exception:
+            pass
+
+    def _schedule_topmost_reapply(self):
+        """Re-apply Win32 strip every 2 s while exam mode is active."""
+        def _reapply():
+            if not self.window.winfo_exists():
+                return
+            if not self.sec.is_exam_mode:
+                return
+            self._win32_strip_admin()
             try:
-                import ctypes
-                hwnd = self.window.winfo_id()
-                GWL_STYLE = -16
-                WS_MINIMIZEBOX = 0x00020000
-                WS_MAXIMIZEBOX = 0x00010000
-                WS_SYSMENU     = 0x00080000
-                user32 = ctypes.windll.user32
-                style = user32.GetWindowLongPtrW(hwnd, GWL_STYLE)
-                style &= ~(WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU)
-                user32.SetWindowLongPtrW(hwnd, GWL_STYLE, style)
-                SWP_FLAGS = 0x0002 | 0x0001 | 0x0004 | 0x0020  # NOMOVE|NOSIZE|NOZORDER|FRAMECHANGED
-                user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_FLAGS)
-                # Register this HWND as exempt so window_manager never re-strips it
-                if self.sec.window_manager.is_active:
-                    self.sec.window_manager.add_exempt_hwnd(hwnd)
+                self.window.attributes('-topmost', True)
+                self.window.lift()
             except Exception:
                 pass
+            self.window.after(2000, _reapply)
+        try:
+            self.window.after(2000, _reapply)
         except Exception:
             pass
 
@@ -1385,6 +1445,8 @@ class AdminPanel:
             self.window.unbind('<Unmap>')
         except Exception:
             pass
+        # Restore Win32 title bar so admin can move/resize the panel again
+        self._win32_restore_admin()
 
     def _on_close_locked(self):
         """Replaces WM_DELETE_WINDOW during lockdown."""
@@ -1395,7 +1457,6 @@ class AdminPanel:
             'End the exam session first.',
             parent=self.window
         )
-        # Re-assert topmost in case it was lost
         try:
             self.window.attributes('-topmost', True)
             self.window.deiconify()
@@ -1408,7 +1469,7 @@ class AdminPanel:
         try:
             if not self.sec.is_exam_mode:
                 return
-            # Restore in the same event loop frame (after(0)) — no delay gap
+            # Restore in the same event loop frame — no delay gap
             self.window.after(0, self.window.deiconify)
             self.window.after(0, self.window.lift)
             self.window.after(0, lambda: self.window.attributes('-topmost', True))
