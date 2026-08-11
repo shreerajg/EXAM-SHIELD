@@ -223,15 +223,22 @@ class WindowManager:
                             )
 
                     # Strip all title-bar controls from browsers
+                    # Removing WS_CAPTION and WS_THICKFRAME prevents custom title bars from showing
                     desired_style = current_style & ~(
                         win32con.WS_MAXIMIZEBOX |
                         win32con.WS_MINIMIZEBOX |
-                        win32con.WS_SYSMENU
+                        win32con.WS_SYSMENU |
+                        win32con.WS_CAPTION |
+                        win32con.WS_THICKFRAME
                     )
                 else:
-                    # Other app windows: only remove minimize button
-                    # so the student can't hide a window but can still use it
-                    desired_style = current_style & ~win32con.WS_MINIMIZEBOX
+                    # Other app windows: remove minimize, maximize, and close
+                    # so the student can't hide or close a window but can still use it
+                    desired_style = current_style & ~(
+                        win32con.WS_MINIMIZEBOX |
+                        win32con.WS_MAXIMIZEBOX |
+                        win32con.WS_SYSMENU
+                    )
 
                 # Only write + redraw if the style actually changed
                 if desired_style != current_style:
