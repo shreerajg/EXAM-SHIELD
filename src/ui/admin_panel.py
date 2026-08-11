@@ -1345,15 +1345,35 @@ class AdminPanel:
 
     # ── Topmost / Anti-Minimize Guard (H6) ─────────────────────────
     def _enforce_topmost(self):
-        """Pin admin panel on top, strip minimize button, install iconify guard."""
+        """Pin admin panel on top, strip Win32 title bar buttons, install guards."""
         try:
             self.window.attributes('-topmost', True)
             self.window.deiconify()
             self.window.lift()
-            # Override close-button to show warning instead of minimizing
+            # Block WM_DELETE_WINDOW
             self.window.protocol('WM_DELETE_WINDOW', self._on_close_locked)
-            # Bind iconify (Win+D, taskbar click) to immediately restore
+            # Bind iconify to immediately restore
             self.window.bind('<Unmap>', self._on_unmap_locked)
+
+            # ── Win32: strip minimize/maximize/close from admin panel HWND ──
+            try:
+                import ctypes
+                hwnd = self.window.winfo_id()
+                GWL_STYLE = -16
+                WS_MINIMIZEBOX = 0x00020000
+                WS_MAXIMIZEBOX = 0x00010000
+                WS_SYSMENU     = 0x00080000
+                user32 = ctypes.windll.user32
+                style = user32.GetWindowLongPtrW(hwnd, GWL_STYLE)
+                style &= ~(WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU)
+                user32.SetWindowLongPtrW(hwnd, GWL_STYLE, style)
+                SWP_FLAGS = 0x0002 | 0x0001 | 0x0004 | 0x0020  # NOMOVE|NOSIZE|NOZORDER|FRAMECHANGED
+                user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_FLAGS)
+                # Register this HWND as exempt so window_manager never re-strips it
+                if self.sec.window_manager.is_active:
+                    self.sec.window_manager.add_exempt_hwnd(hwnd)
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -1384,11 +1404,24 @@ class AdminPanel:
             pass
 
     def _on_unmap_locked(self, event=None):
-        """Fires when window is minimized/hidden during lockdown — restore it."""
+        """Fires when window is minimized/hidden during lockdown — restore immediately."""
         try:
-            if self.sec.is_exam_mode:
-                self.window.after(50, self.window.deiconify)
-                self.window.after(60, self.window.lift)
+            if not self.sec.is_exam_mode:
+                return
+            # Restore in the same event loop frame (after(0)) — no delay gap
+            self.window.after(0, self.window.deiconify)
+            self.window.after(0, self.window.lift)
+            self.window.after(0, lambda: self.window.attributes('-topmost', True))
+            # Repeat every 200 ms for 1 s to fight aggressive window managers
+            for delay in (200, 400, 600, 800, 1000):
+                self.window.after(
+                    delay,
+                    lambda: (
+                        self.window.deiconify(),
+                        self.window.lift(),
+                        self.window.attributes('-topmost', True),
+                    ) if self.window.winfo_exists() and self.sec.is_exam_mode else None
+                )
         except Exception:
             pass
 
@@ -1641,9 +1674,9 @@ class AdminPanel:
         if active:
             labels = {
                 'left': 'Left', 'right': 'Right', 'middle': 'Middle',
-                'double': 'DblClick', 'side': 'Side', 'movement': 'Movement'
+                'double': 'DblClick', 'side': 'Side', 'scroll': 'Scroll'
             }
-            txt = 'Will block: ' + ', '.join(labels[k] for k in active)
+            txt = 'Will block: ' + ', '.join(labels.get(k, k) for k in active)
             self._mouse_status.config(text=txt, fg=C['warning'])
         else:
             self._mouse_status.config(
