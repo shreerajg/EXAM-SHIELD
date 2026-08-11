@@ -23,8 +23,10 @@ WM_RBUTTONDBLCLK = 0x0206
 WM_MBUTTONDOWN   = 0x0207
 WM_MBUTTONUP     = 0x0208
 WM_MBUTTONDBLCLK = 0x0209
+WM_MOUSEWHEEL    = 0x020A
 WM_XBUTTONDOWN   = 0x020B
 WM_XBUTTONUP     = 0x020C
+WM_MOUSEHWHEEL   = 0x020E
 
 HC_ACTION = 0
 
@@ -52,7 +54,7 @@ class MouseManager:
         block_middle   – suppress middle-button press/release
         block_double   – suppress double-click messages
         block_side     – suppress X1/X2 (back/forward) buttons
-        block_movement – warp cursor back to lock point on any move
+        block_scroll   – suppress mouse wheel scrolling
     """
 
     def __init__(self, db_manager):
@@ -67,7 +69,7 @@ class MouseManager:
         self.block_middle   = False
         self.block_double   = False
         self.block_side     = False
-        self.block_movement = False
+        self.block_scroll   = False
 
         # Internal
         self._lock        = threading.Lock()
@@ -75,7 +77,6 @@ class MouseManager:
         self._hook_proc   = None   # must keep a reference or GC kills it
         self._hook_thread = None
         self._stop_evt    = threading.Event()
-        self._lock_pos    = None   # (x, y) for movement lock
 
     # ── Public flag API ───────────────────────────────────────────
     def apply_flags(self, flags: dict):
@@ -85,7 +86,7 @@ class MouseManager:
         self.block_middle   = bool(flags.get('middle',   False))
         self.block_double   = bool(flags.get('double',   False))
         self.block_side     = bool(flags.get('side',     False))
-        self.block_movement = bool(flags.get('movement', False))
+        self.block_scroll   = bool(flags.get('scroll',   False))
         self.blocked_buttons = [k for k, v in flags.items() if v]
 
     def get_flags(self) -> dict:
@@ -95,7 +96,7 @@ class MouseManager:
             'middle':   self.block_middle,
             'double':   self.block_double,
             'side':     self.block_side,
-            'movement': self.block_movement,
+            'scroll':   self.block_scroll,
         }
 
     # ── Start / Stop ──────────────────────────────────────────────
@@ -109,7 +110,6 @@ class MouseManager:
             self.apply_flags(flags)
 
         self._stop_evt.clear()
-        self._lock_pos = None
 
         self._hook_thread = threading.Thread(
             target=self._hook_loop, daemon=True, name="MouseHook"
@@ -129,7 +129,6 @@ class MouseManager:
         self._stop_evt.set()
         # Post WM_QUIT to unblock GetMessage in the hook thread
         self._post_quit()
-        self._lock_pos = None
         self.log.info("MOUSE_BLOCKING_STOP", "Mouse blocking deactivated")
 
     # ── Win32 hook thread ─────────────────────────────────────────
@@ -189,28 +188,11 @@ class MouseManager:
     def _should_block(self, wParam, lParam) -> bool:
         msg = wParam
 
-        # Movement
-        if msg == WM_MOUSEMOVE and self.block_movement:
-            data = ctypes.cast(lParam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
-            x, y = data.pt.x, data.pt.y
-            
-            # Bound to primary monitor (0, 0) to (w, h)
-            w = ctypes.windll.user32.GetSystemMetrics(0)
-            h = ctypes.windll.user32.GetSystemMetrics(1)
-            
-            new_x, new_y = x, y
-            if x < 0: new_x = 0
-            if x >= w: new_x = w - 1
-            if y < 0: new_y = 0
-            if y >= h: new_y = h - 1
-            
-            if (x, y) != (new_x, new_y):
-                self.log.security("BLOCKED_MOUSE",
-                                  f"Movement confined to primary monitor",
-                                  blocked=True)
-                ctypes.windll.user32.SetCursorPos(new_x, new_y)
-                return True
-            return False
+        # Scroll
+        if msg in (WM_MOUSEWHEEL, WM_MOUSEHWHEEL) and self.block_scroll:
+            self.log.security("BLOCKED_MOUSE", "Mouse scroll blocked",
+                              blocked=True)
+            return True
 
         # Left button
         if msg in (WM_LBUTTONDOWN, WM_LBUTTONUP) and self.block_left:
