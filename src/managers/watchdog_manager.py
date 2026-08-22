@@ -3,9 +3,15 @@ ExamShield — Watchdog Manager
 Launches and manages the watchdog_worker.py child process during exam
 lockdown. The child process outlives temporary interruptions to the main
 process and kills escape tools if the student kills main Python process.
+
+Security: The flag file is HMAC-signed with a per-session secret key.
+The watchdog validates the HMAC on every cycle, preventing flag-file spoofing.
 """
 import os
 import sys
+import hmac
+import hashlib
+import secrets
 import subprocess
 import tempfile
 import threading
@@ -18,11 +24,12 @@ class WatchdogManager:
         self.log = ExamShieldLogger(db_manager)
         self._proc       = None          # subprocess.Popen handle
         self._flag_file  = None          # path to lock-file
+        self._secret_key = None          # HMAC secret for this session
         self._alive      = False
 
     # ── Public API ───────────────────────────────────────────────
     def start(self):
-        """Launch the watchdog child process."""
+        """Launch the watchdog child process with HMAC-signed flag file."""
         if self._alive:
             return
         try:
@@ -32,20 +39,30 @@ class WatchdogManager:
             )
             os.close(fd)
 
+            # Generate a per-session HMAC secret and write the signed token
+            self._secret_key = secrets.token_bytes(32)
+            signed_token = self._compute_hmac(self._flag_file, self._secret_key)
+
+            # Write the HMAC signature into the flag file
+            with open(self._flag_file, 'w') as f:
+                f.write(signed_token)
+
             worker = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
                 'watchdog_worker.py'
             )
             self._proc = subprocess.Popen(
                 [sys.executable, worker,
-                 str(os.getpid()), self._flag_file],
+                 str(os.getpid()),          # parent PID
+                 self._flag_file,            # path to flag file
+                 self._secret_key.hex()],    # HMAC secret (hex)
                 # Detach so it survives if main window is killed
                 creationflags=subprocess.CREATE_NO_WINDOW,
                 close_fds=True,
             )
             self._alive = True
             self.log.info("WATCHDOG_START",
-                          f"Watchdog PID {self._proc.pid} started")
+                          f"Watchdog PID {self._proc.pid} started (HMAC-signed)")
         except Exception as e:
             self.log.error("WATCHDOG_START", f"Failed: {e}")
 
@@ -61,7 +78,8 @@ class WatchdogManager:
                 os.remove(self._flag_file)
             except Exception:
                 pass
-        self._flag_file = None
+        self._flag_file  = None
+        self._secret_key = None
 
         # Also terminate the process directly as a backup
         if self._proc and self._proc.poll() is None:
@@ -71,6 +89,11 @@ class WatchdogManager:
                 pass
         self._proc = None
         self.log.info("WATCHDOG_STOP", "Watchdog terminated")
+
+    @staticmethod
+    def _compute_hmac(flag_path: str, secret: bytes) -> str:
+        """Return the HMAC-SHA256 hex digest of the flag file path."""
+        return hmac.new(secret, flag_path.encode('utf-8'), hashlib.sha256).hexdigest()
 
     @property
     def is_running(self) -> bool:
