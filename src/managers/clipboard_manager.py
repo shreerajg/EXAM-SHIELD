@@ -5,13 +5,14 @@ import time
 class ClipboardManager:
     """
     Prevents copy-pasting by aggressively clearing the system clipboard 
-    while the exam is active.
+    while the exam is active. Poll interval: 100 ms for minimal paste window.
     """
     def __init__(self, db_manager):
         self.db = db_manager
         self.log = db_manager.logger
         self.is_active = False
         self._thread = None
+        self._security_manager = None   # set externally if breach counting needed
 
     def start(self):
         if self.is_active:
@@ -45,15 +46,24 @@ class ClipboardManager:
                                         ctypes.windll.kernel32.GlobalUnlock(handle)
                                         if text and str(text).strip():
                                             preview = str(text).strip().replace('\n', ' ')[:50]
-                                            self.log.security("CLIPBOARD_BLOCKED", f"Blocked copy: '{preview}...'")
-                        except Exception as e:
+                                            self.log.security(
+                                                "CLIPBOARD_BLOCKED",
+                                                f"Blocked copy: '{preview}...'"
+                                            )
+                                            # Increment breach counter if security manager present
+                                            if self._security_manager is not None:
+                                                try:
+                                                    self._security_manager.breach_counts['keyboard'] += 1
+                                                except Exception:
+                                                    pass
+                        except Exception:
                             pass
-                            
+
                         ctypes.windll.user32.EmptyClipboard()
                         ctypes.windll.user32.CloseClipboard()
             except Exception:
                 # Ignore failures if another process is currently holding the clipboard open
                 pass
-            
-            # Tighter interval for better protection, safely skipping if empty
-            time.sleep(0.5)
+
+            # 100 ms poll — reduces paste window from 500 ms to 100 ms
+            time.sleep(0.1)
