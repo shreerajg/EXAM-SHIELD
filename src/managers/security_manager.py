@@ -123,6 +123,7 @@ class SecurityManager:
                 )
             self.window_manager.start_window_protection()
         if sel.get('clipboard', True):
+            self.clipboard_manager._security_manager = self
             self.clipboard_manager.start()
         if sel.get('webcam', True):
             self.webcam_manager.start()
