@@ -13,7 +13,8 @@ class Config:
     # ── Paths ────────────────────────────────────────────────────
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     DATABASE_NAME = "exam_shield.db"
-    DATABASE_PATH = os.path.join(BASE_DIR, DATABASE_NAME)
+    # Database lives one level up (project root), next to main.py
+    DATABASE_PATH = os.path.join(os.path.dirname(BASE_DIR), DATABASE_NAME)
     LOG_DIR = os.path.join(BASE_DIR, "logs")
     SCREENSHOT_DIR = os.path.join(LOG_DIR, "screenshots")
     REPORT_DIR = os.path.join(LOG_DIR, "reports")
@@ -31,12 +32,16 @@ class Config:
     AUDIO_SUSTAINED_TOLERANCE = 3 # number of consecutive noisy chunks before alerting
 
     # ── Login Security ────────────────────────────────────────────
-    LOGIN_MAX_ATTEMPTS  = 5    # failed attempts before lockout
-    LOGIN_LOCKOUT_SEC   = 30   # lockout duration in seconds
+    # Escalating lockout: each failed attempt beyond MAX_ATTEMPTS triggers
+    # a longer lockout tier.  Tiers defined in DatabaseManager._LOCKOUT_TIERS.
+    LOGIN_MAX_ATTEMPTS   = 3     # attempts allowed before FIRST lockout
+    LOGIN_LOCKOUT_SEC    = 60    # Tier-1 lockout (kept for countdown display)
 
     # ── Default Credentials ──────────────────────────────────────
+    # NOTE: No plaintext default password is stored here.
+    # On first run, DatabaseManager generates a random password and prints
+    # it to the console once.  The admin must change it immediately.
     DEFAULT_ADMIN_USERNAME = "admin"
-    DEFAULT_ADMIN_PASSWORD = "admin"
 
     # ── Keyboard Blocking ────────────────────────────────────────
     BLOCKED_KEYS = [
@@ -62,6 +67,8 @@ class Config:
     BLOCKED_MOUSE_BUTTONS = ['middle', 'x1', 'x2', 'side']
 
     # ── Admin Hotkey ─────────────────────────────────────────────
+    # SECURITY: These keys are NOT displayed anywhere in the UI.
+    # The admin hotkey requires password re-authentication before revealing the panel.
     ADMIN_ACCESS_KEY = 'ctrl+shift+y'
     STEALTH_MODE_KEY = 'ctrl+shift+h'
 
@@ -124,6 +131,13 @@ class Config:
         'notepad++.exe', 'sublime_text.exe', 'atom.exe',
         # Browsers (standalone attempts outside allowed ones)
         'tor browser.exe',
+        # VPN / tunnel clients
+        'openvpn.exe', 'vpnui.exe', 'nordvpn.exe', 'expressvpn.exe',
+        'tunnelbear.exe', 'protonvpn.exe',
+        # Clipboard extenders / macro tools
+        'autohotkey.exe', 'ahk.exe', 'keypirinha.exe',
+        # Screen sharing / remote input
+        'rustdesk.exe', 'chrome remote desktop.exe',
     ]
 
     # ── Process Monitor Interval (seconds) ───────────────────────
