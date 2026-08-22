@@ -3,11 +3,10 @@ ExamShield v1.0 — Main Entry Point
 Animated dark-mode login → Admin Panel lifecycle.
 """
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog
 import sys
 import os
 import atexit
-import hashlib
 import ctypes
 import threading
 from src.config import Config
@@ -16,6 +15,17 @@ from src.ui.admin_panel import AdminPanel
 from src.managers.security_manager import SecurityManager
 from src.ui.system_tray import SystemTray
 from src.logger import ExamShieldLogger
+
+# ── Single-instance mutex ─────────────────────────────────────────────────────
+_MUTEX_NAME = "Global\\ExamShield_SingleInstance_Mutex"
+_mutex_handle = None
+
+def _acquire_single_instance_mutex():
+    """Return True if this is the only running instance."""
+    global _mutex_handle
+    _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, True, _MUTEX_NAME)
+    last_err = ctypes.windll.kernel32.GetLastError()
+    return last_err != 183  # ERROR_ALREADY_EXISTS
 
 
 class ExamShield:
@@ -44,8 +54,8 @@ class ExamShield:
         self.security = None
         self.tray = None
         self._logged_in_user = None
-        self._login_attempts = 0        # consecutive failed attempts
-        self._locked_out = False        # True while lockout timer running
+        self._login_attempts = 0        # consecutive failed attempts (in-memory)
+        self._locked_out = False        # True while countdown timer running
 
         self._build_login_ui()
         self._center()
@@ -240,25 +250,14 @@ class ExamShield:
         info = tk.Frame(self.root, bg=C['bg'])
         info.pack(fill=tk.X, padx=32, pady=(0, 8))
 
-        if not self.db.admin_exists():
-            hint = tk.Frame(info, bg='#1a3316')
-            hint.pack(fill=tk.X, pady=3)
-            tk.Label(hint, text="ℹ️  First run — Default credentials: admin / admin",
-                     font=("Segoe UI", 9), bg='#1a3316', fg=C['success'],
-                     pady=7).pack()
-
         admin_row = tk.Frame(info, bg='#131330')
         admin_row.pack(fill=tk.X, pady=3)
         tk.Label(admin_row, text="✅  Administrator Privileges Active",
                  font=("Segoe UI", 9, "bold"), bg='#131330', fg=C['success'],
                  pady=6).pack()
 
-        hotkey_row = tk.Frame(info, bg=C['surface_alt'])
-        hotkey_row.pack(fill=tk.X, pady=3)
-        tk.Label(hotkey_row,
-                 text=f"🔑  Emergency Admin Hotkey:  {Config.ADMIN_ACCESS_KEY.upper()}",
-                 font=("Consolas", 9), bg=C['surface_alt'], fg=C['warning'],
-                 pady=6).pack()
+        # SECURITY: Admin hotkey is NOT displayed here.
+        # It requires password re-authentication before the panel is revealed.
 
         # ── Footer
         footer = tk.Frame(self.root, bg=C['surface'], height=28)
@@ -380,21 +379,38 @@ class ExamShield:
     def _login(self):
         if self._locked_out:
             return
+
         user = self.username_var.get().strip()
-        pw = self.password_var.get().strip()
-        if not user:
+        pw   = self.password_var.get()          # do NOT strip — passwords may have spaces
+
+        if not user or not pw:
             self._shake_window()
             return
-        if not pw:
-            self._shake_window()
-            return
+
         try:
-            h = hashlib.sha256(pw.encode()).hexdigest()
-            if self.db.verify_admin(user, h):
+            # ── Check DB-persistent lockout first (survives process restarts) ──
+            is_locked, secs_remaining, tier = self.db.get_lockout(user)
+            if is_locked:
+                if secs_remaining == -1:
+                    self._attempt_badge.config(
+                        text="🔒  Account permanently locked — contact administrator",
+                        fg=Config.COLORS['danger']
+                    )
+                else:
+                    self._attempt_badge.config(
+                        text=f"🔒  Account locked — try again in {secs_remaining}s",
+                        fg=Config.COLORS['danger']
+                    )
+                self._shake_window()
+                return
+
+            # ── Verify credentials (raw password; PBKDF2 handled in DB layer) ──
+            if self.db.verify_admin(user, pw):
                 self._logged_in_user = user
                 self._login_attempts = 0
                 self._attempt_badge.config(text="")
                 self.db.clear_failed_logins(user)
+                self.db.clear_lockout(user)
                 self._start_session()
             else:
                 self._login_attempts += 1
@@ -404,11 +420,13 @@ class ExamShield:
                 max_a = Config.LOGIN_MAX_ATTEMPTS
                 remaining = max_a - self._login_attempts
                 if self._login_attempts >= max_a:
-                    self._start_lockout()
+                    self._start_lockout(user)
                 else:
+                    C = Config.COLORS
                     self._attempt_badge.config(
                         text=f"⚠️  Failed attempt {self._login_attempts}/{max_a}  "
-                             f"({remaining} left before lockout)"
+                             f"({remaining} left before lockout)",
+                        fg=C['danger']
                     )
                     messagebox.showerror(
                         "Login Failed",
@@ -418,19 +436,41 @@ class ExamShield:
         except Exception as e:
             messagebox.showerror("Error", f"Login error: {e}", parent=self.root)
 
-    def _start_lockout(self):
-        """Lock the login UI for LOGIN_LOCKOUT_SEC seconds."""
+    def _start_lockout(self, username: str):
+        """Persist escalating lockout to DB AND run a UI countdown."""
+        C = Config.COLORS
         self._locked_out = True
         self._login_btn.config(state=tk.DISABLED)
         self._pw_entry.config(state=tk.DISABLED)
-        secs = Config.LOGIN_LOCKOUT_SEC
-        self.log.warning("LOGIN_LOCKOUT",
-            f"Account locked for {secs}s after {Config.LOGIN_MAX_ATTEMPTS} failed attempts")
+
+        # Determine next tier
+        current_tier = self.db.get_lockout_tier(username)
+        next_tier = min(current_tier + 1, len(self.db._LOCKOUT_TIERS) - 1) \
+                    if self._login_attempts > Config.LOGIN_MAX_ATTEMPTS \
+                    else current_tier
+        self.db.set_lockout(username, next_tier)
+
+        duration = self.db._LOCKOUT_TIERS[next_tier]
+        tier_label = ["1 min", "5 min", "30 min", "permanent"][min(next_tier, 3)]
+
+        self.log.warning(
+            "LOGIN_LOCKOUT",
+            f"Account '{username}' locked (Tier {next_tier+1}: {tier_label}) "
+            f"after {self._login_attempts} failed attempts"
+        )
+
+        if duration == -1:
+            # Permanent lockout
+            self._attempt_badge.config(
+                text="🔒  Account permanently locked — contact administrator",
+                fg=C['danger']
+            )
+            return
 
         def countdown(remaining):
             if remaining > 0:
                 self._attempt_badge.config(
-                    text=f"🔒  Too many failed attempts — locked for {remaining}s",
+                    text=f"🔒  Too many failed attempts — locked for {remaining}s (Tier {next_tier+1})",
                     fg=C['danger']
                 )
                 self.root.after(1000, countdown, remaining - 1)
@@ -442,7 +482,7 @@ class ExamShield:
                 self._attempt_badge.config(text="", fg=C['danger'])
                 self._pw_entry.focus()
 
-        countdown(secs)
+        countdown(duration)
 
     def _shake_window(self):
         """Shake the window to indicate error."""
@@ -510,6 +550,14 @@ class ExamShield:
 
 
 if __name__ == "__main__":
+    # Prevent multiple simultaneous instances
+    if not _acquire_single_instance_mutex():
+        messagebox.showerror(
+            "Already Running",
+            "ExamShield is already running.\n"
+            "Only one instance is allowed at a time."
+        )
+        sys.exit(1)
     try:
         app = ExamShield()
         if hasattr(app, 'root'):
