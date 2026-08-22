@@ -53,7 +53,8 @@
 
 ## 🚀 Usage
 
-*Note: ExamShield requires **Administrator privileges** to control system hooks, network adapters, and processes.*
+*Note: ExamShield doesn't requires **Administrator privileges** to control system hooks, network adapters, and processes.*
+Which make s the app more reliable and more powerful without power.
 
 To launch the application:
 ```bash
