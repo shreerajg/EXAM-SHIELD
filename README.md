@@ -78,6 +78,7 @@ Upon launching, the app will automatically request Admin elevation if not alread
 ## 🔒 Security Note
 
 This software employs aggressive system-level hooks and administrative commands. Use it exclusively in authorized, dedicated exam environments. The creators assume no liability for potential system lockouts or network disruptions caused by improper configuration.
+The system is robust and secure as there are bypass handlers so that app does its job
 
 ## 📄 License
 
