@@ -1,7 +1,8 @@
 """
 ExamShield v1.0 — Network Manager
-Blocks internet by modifying hosts file + DNS, with robust restoration.
+Blocks internet by modifying hosts file + DNS + Windows Firewall, with robust restoration.
 """
+import hashlib
 import os
 import shutil
 import platform
@@ -37,15 +38,18 @@ class NetworkManager:
         try:
             self._backup_hosts()
             self._write_blocked_hosts()
-            self._lock_hosts_file()          # H3: deny write access
+            self._lock_hosts_file()          # deny write access
             self._set_dns_loopback()
+            self._add_firewall_rules()       # second-layer: Windows Firewall
             self.is_blocked = True
+            self._hosts_hash = self._hash_hosts()   # record expected hash
             self._stop_event.clear()
             self._guard_thread = threading.Thread(
                 target=self._guard_loop, daemon=True
             )
             self._guard_thread.start()
-            self.log.info("NET_BLOCK_START", "Internet blocking activated")
+            self.log.info("NET_BLOCK_START",
+                          "Internet blocking activated (hosts + DNS + firewall)")
         except Exception as e:
             self.log.error("NET_BLOCK", f"Start failed: {e}")
 
@@ -55,10 +59,11 @@ class NetworkManager:
         self.is_blocked = False
         self._stop_event.set()
         try:
-            self._unlock_hosts_file()        # H3: restore write access first
+            self._unlock_hosts_file()        # restore write access first
             self._restore_hosts()
             self._restore_dns()
             self._flush_dns()
+            self._remove_firewall_rules()    # clean up firewall rules
             self.log.info("NET_BLOCK_STOP", "Internet access restored")
         except Exception as e:
             self.log.error("NET_BLOCK", f"Stop failed: {e}")
@@ -161,22 +166,79 @@ class NetworkManager:
         except Exception as e:
             self.log.error("NET_HOSTS_UNLOCK", f"Unlock failed: {e}")
 
-    # ── Guard Thread ─────────────────────────────────────────────
+    # ── Guard Thread ─────────────────────────────────────────────────────
+    _hosts_hash: str = ''
+
+    def _hash_hosts(self) -> str:
+        """Return SHA-256 hex digest of the current hosts file."""
+        try:
+            with open(self.hosts_path, 'rb') as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        except Exception:
+            return ''
+
     def _guard_loop(self):
-        """Re-apply hosts blocking if someone tampers with the file."""
+        """Re-apply hosts blocking if someone tampers with the file (0.5 s interval)."""
         while not self._stop_event.is_set():
             try:
-                with open(self.hosts_path, 'r', encoding='utf-8', errors='replace') as f:
-                    content = f.read()
-                if self._MARKER_START not in content:
-                    # File was tampered — re-lock and re-write
+                current_hash = self._hash_hosts()
+                # Tamper detected: either marker removed OR content changed
+                if current_hash != self._hosts_hash:
+                    with open(self.hosts_path, 'r',
+                              encoding='utf-8', errors='replace') as f:
+                        content = f.read()
+                    if self._MARKER_START not in content:
+                        self.log.warning("NET_GUARD",
+                                         "Re-applied tampered hosts block (marker removed)")
+                    else:
+                        self.log.warning("NET_GUARD",
+                                         "Re-applied tampered hosts block (hash mismatch)")
                     self._write_blocked_hosts()
                     self._lock_hosts_file()
-                    self.log.warning("NET_GUARD", "Re-applied tampered hosts block")
+                    self._hosts_hash = self._hash_hosts()
             except Exception:
                 pass
-            self._stop_event.wait(2)   # 2 s instead of 5 s
+            self._stop_event.wait(0.5)   # 0.5 s tight guard
 
-    # ── Helpers ──────────────────────────────────────────────────
+    # ── Windows Firewall (second-layer) ──────────────────────────────────────
+    _FW_RULE_NAME = "ExamShield_BlockOutbound"
+
+    def _add_firewall_rules(self):
+        """
+        Block all outbound non-loopback traffic via Windows Firewall.
+        This is a second layer on top of the hosts file.
+        """
+        if platform.system().lower() != 'windows':
+            return
+        try:
+            # Remove any stale rule first
+            self._remove_firewall_rules()
+            subprocess.run(
+                ['netsh', 'advfirewall', 'firewall', 'add', 'rule',
+                 f'name={self._FW_RULE_NAME}',
+                 'dir=out', 'action=block',
+                 'remoteip=1.0.0.0-126.255.255.255,128.0.0.0-223.255.255.255',
+                 'protocol=any', 'enable=yes', 'profile=any'],
+                capture_output=True, timeout=15
+            )
+            self.log.info("NET_FW", f"Firewall rule '{self._FW_RULE_NAME}' added")
+        except Exception as e:
+            self.log.error("NET_FW", f"Firewall rule add failed: {e}")
+
+    def _remove_firewall_rules(self):
+        """Remove the ExamShield outbound block rule."""
+        if platform.system().lower() != 'windows':
+            return
+        try:
+            subprocess.run(
+                ['netsh', 'advfirewall', 'firewall', 'delete', 'rule',
+                 f'name={self._FW_RULE_NAME}'],
+                capture_output=True, timeout=15
+            )
+            self.log.info("NET_FW", f"Firewall rule '{self._FW_RULE_NAME}' removed")
+        except Exception as e:
+            self.log.error("NET_FW", f"Firewall rule remove failed: {e}")
+
+    # ── Helpers ──────────────────────────────────────────────────────
     def get_blocked_websites(self):
         return Config.BLOCKED_WEBSITES
