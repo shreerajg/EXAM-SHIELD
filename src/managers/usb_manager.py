@@ -58,7 +58,8 @@ class USBManager:
         self._reg_guard_thread.start()
 
         self._block_all_usb_storage()
-        self.log.info("USB_BLOCKING_START", "USB storage devices blocked")
+        self._disable_usbstor_service()    # disable service, not just registry
+        self.log.info("USB_BLOCKING_START", "USB storage devices blocked (registry + service)")
 
     def stop_blocking(self):
         with self._lock:
@@ -68,6 +69,7 @@ class USBManager:
         
         self._stop_evt.set()
         self._unblock_all_usb_storage()
+        self._enable_usbstor_service()     # re-enable service
         self.log.info("USB_BLOCKING_STOP", "USB storage devices unblocked")
 
     def _enumerate_usb_devices(self):
@@ -134,6 +136,34 @@ Set-ItemProperty -Path $key -Name "WriteProtect" -Value {wp_val} -ErrorAction Si
             )
         except Exception as e:
             self.log.error("USB_CMD", f"Failed to execute USB command: {e}")
+
+    def _disable_usbstor_service(self):
+        """Disable the USBSTOR driver service so USB mass-storage cannot load."""
+        try:
+            # Set start type to 4 (disabled)
+            subprocess.run(
+                ['sc', 'config', 'USBSTOR', 'start=', 'disabled'],
+                capture_output=True, timeout=10
+            )
+            # Also stop the service if running
+            subprocess.run(
+                ['sc', 'stop', 'USBSTOR'],
+                capture_output=True, timeout=10
+            )
+            self.log.info("USB_SERVICE", "USBSTOR service disabled")
+        except Exception as e:
+            self.log.error("USB_SERVICE", f"Failed to disable USBSTOR: {e}")
+
+    def _enable_usbstor_service(self):
+        """Re-enable the USBSTOR driver service after exam ends."""
+        try:
+            subprocess.run(
+                ['sc', 'config', 'USBSTOR', 'start=', 'demand'],
+                capture_output=True, timeout=10
+            )
+            self.log.info("USB_SERVICE", "USBSTOR service re-enabled")
+        except Exception as e:
+            self.log.error("USB_SERVICE", f"Failed to re-enable USBSTOR: {e}")
     
     def _monitor_loop(self):
         try:

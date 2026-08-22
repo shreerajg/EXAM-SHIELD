@@ -2,6 +2,7 @@ import ctypes
 import platform
 import subprocess
 import os
+from src.logger import ExamShieldLogger
 
 class HardwareManager:
     """
@@ -10,7 +11,7 @@ class HardwareManager:
     
     def __init__(self, db_manager):
         self.db = db_manager
-        self.log = db_manager.logger
+        self.log = ExamShieldLogger(db_manager)  # fixed: was db_manager.logger (no such attr)
         self.blackout_windows = []
         
         # Cache static properties so we don't spawn wmic on every UI refresh
