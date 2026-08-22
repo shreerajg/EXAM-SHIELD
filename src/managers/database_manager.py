@@ -1,13 +1,53 @@
 """
 ExamShield v1.0 — Database Manager
-All DB operations: users, logs, settings, sessions.
+All DB operations: users, logs, settings, sessions, lockouts.
 """
 import sqlite3
 import hashlib
+import hmac
 import json
-import datetime
 import os
+import datetime
+import secrets
 from src.config import Config
+
+
+# ── Password hashing (PBKDF2-HMAC-SHA256) ────────────────────────────────────
+_PBKDF2_ITERATIONS = 260_000
+_SALT_BYTES = 32
+
+
+def hash_password(password: str) -> str:
+    """Return  '<salt_hex>:<hash_hex>'  using PBKDF2-HMAC-SHA256."""
+    salt = secrets.token_bytes(_SALT_BYTES)
+    dk = hashlib.pbkdf2_hmac(
+        'sha256', password.encode('utf-8'), salt, _PBKDF2_ITERATIONS
+    )
+    return f"{salt.hex()}:{dk.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    """
+    Verify a password against a stored hash.
+    Supports both new '<salt>:<hash>' (PBKDF2) and legacy bare-SHA256 formats.
+    Returns True on match.
+    """
+    if ':' in stored:
+        # New PBKDF2 format
+        try:
+            salt_hex, hash_hex = stored.split(':', 1)
+            salt = bytes.fromhex(salt_hex)
+            expected = bytes.fromhex(hash_hex)
+            dk = hashlib.pbkdf2_hmac(
+                'sha256', password.encode('utf-8'), salt, _PBKDF2_ITERATIONS
+            )
+            return hmac.compare_digest(dk, expected)
+        except Exception:
+            return False
+    else:
+        # Legacy SHA-256 (no salt) — accepted for migration only
+        legacy = hashlib.sha256(password.encode('utf-8')).hexdigest()
+        return hmac.compare_digest(legacy, stored)
 
 
 class DatabaseManager:
@@ -58,7 +98,17 @@ class DatabaseManager:
                     username   TEXT NOT NULL,
                     timestamp  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )''')
+                # Persistent lockout table (survives process restarts)
+                c.execute('''CREATE TABLE IF NOT EXISTS lockouts (
+                    username    TEXT PRIMARY KEY,
+                    locked_until TIMESTAMP NOT NULL,
+                    tier        INTEGER NOT NULL DEFAULT 1
+                )''')
                 conn.commit()
+
+                # Auto-upgrade legacy SHA-256 admin password to PBKDF2
+                self._migrate_legacy_passwords(c, conn)
+
                 if not self.admin_exists():
                     self._create_default_admin(c, conn)
         except sqlite3.Error as e:
@@ -68,12 +118,30 @@ class DatabaseManager:
         return sqlite3.connect(self.db_path, timeout=10, check_same_thread=False)
 
     def _create_default_admin(self, cursor, conn):
-        pw = hashlib.sha256(Config.DEFAULT_ADMIN_PASSWORD.encode()).hexdigest()
+        """Create the first admin with a random secure password (printed once)."""
+        random_pw = secrets.token_urlsafe(12)
+        pw_hash = hash_password(random_pw)
         cursor.execute(
             "INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
-            (Config.DEFAULT_ADMIN_USERNAME, pw),
+            ('admin', pw_hash),
         )
         conn.commit()
+        print("=" * 60)
+        print("  ExamShield — FIRST RUN")
+        print(f"  Username : admin")
+        print(f"  Password : {random_pw}")
+        print("  ⚠  Change this password immediately after first login!")
+        print("=" * 60)
+
+    def _migrate_legacy_passwords(self, cursor, conn):
+        """
+        Detect any user whose password_hash is a bare 64-char hex string
+        (old SHA-256 without salt). We cannot re-hash without the plaintext,
+        so we leave legacy hashes in place; they will be transparently
+        upgraded in verify_admin() the next time the user logs in.
+        This method is a no-op placeholder for future migration logic.
+        """
+        pass
 
     # ── Auth ─────────────────────────────────────────────────────
     def admin_exists(self):
@@ -86,44 +154,138 @@ class DatabaseManager:
         except sqlite3.Error:
             return False
 
-    def verify_admin(self, username, password_hash):
+    def verify_admin(self, username: str, password: str) -> bool:
+        """
+        Verify admin credentials.  'password' is the RAW plaintext password.
+        On success with a legacy hash, transparently upgrades to PBKDF2.
+        """
         try:
             with self._conn() as conn:
                 row = conn.execute(
-                    "SELECT id FROM users WHERE username=? AND password_hash=? AND role='admin'",
-                    (username, password_hash),
+                    "SELECT id, password_hash FROM users WHERE username=? AND role='admin'",
+                    (username,),
                 ).fetchone()
-                if row:
+                if not row:
+                    return False
+                user_id, stored_hash = row
+
+                if not verify_password(password, stored_hash):
+                    return False
+
+                # Upgrade legacy SHA-256 hash to PBKDF2 transparently
+                if ':' not in stored_hash:
+                    new_hash = hash_password(password)
                     conn.execute(
-                        "UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=?",
-                        (row[0],),
+                        "UPDATE users SET password_hash=? WHERE id=?",
+                        (new_hash, user_id),
                     )
-                    conn.commit()
-                    return True
-                return False
+
+                conn.execute(
+                    "UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=?",
+                    (user_id,),
+                )
+                conn.commit()
+                return True
         except sqlite3.Error as e:
             print(f"[DB] Verify error: {e}")
             return False
 
-    def change_password(self, username, old_hash, new_hash):
-        """Change admin password. Returns True on success."""
+    def change_password(self, username: str, old_password: str,
+                        new_password: str) -> bool:
+        """Change admin password.  Both arguments are RAW plaintext. Returns True on success."""
         try:
             with self._conn() as conn:
                 row = conn.execute(
-                    "SELECT id FROM users WHERE username=? AND password_hash=? AND role='admin'",
-                    (username, old_hash),
+                    "SELECT id, password_hash FROM users WHERE username=? AND role='admin'",
+                    (username,),
                 ).fetchone()
                 if not row:
                     return False
+                user_id, stored_hash = row
+                if not verify_password(old_password, stored_hash):
+                    return False
+                new_hash = hash_password(new_password)
                 conn.execute(
                     "UPDATE users SET password_hash=? WHERE id=?",
-                    (new_hash, row[0]),
+                    (new_hash, user_id),
                 )
                 conn.commit()
                 return True
         except sqlite3.Error as e:
             print(f"[DB] Password change error: {e}")
             return False
+
+    # ── Persistent Lockout ───────────────────────────────────────
+    _LOCKOUT_TIERS = [
+        60,       # Tier 1: 1 minute
+        300,      # Tier 2: 5 minutes
+        1800,     # Tier 3: 30 minutes
+        -1,       # Tier 4: permanent (until admin resets)
+    ]
+
+    def get_lockout(self, username: str) -> tuple[bool, int, int]:
+        """
+        Returns (is_locked, seconds_remaining, current_tier).
+        seconds_remaining == -1 means permanent lockout.
+        """
+        try:
+            with self._conn() as conn:
+                row = conn.execute(
+                    "SELECT locked_until, tier FROM lockouts WHERE username=?",
+                    (username,)
+                ).fetchone()
+                if not row:
+                    return False, 0, 0
+                locked_until_str, tier = row
+                if locked_until_str == 'permanent':
+                    return True, -1, tier
+                locked_until = datetime.datetime.fromisoformat(locked_until_str)
+                now = datetime.datetime.now()
+                if now < locked_until:
+                    remaining = int((locked_until - now).total_seconds())
+                    return True, remaining, tier
+                # Lockout expired — clean it up
+                conn.execute("DELETE FROM lockouts WHERE username=?", (username,))
+                conn.commit()
+                return False, 0, tier
+        except sqlite3.Error:
+            return False, 0, 0
+
+    def set_lockout(self, username: str, tier: int):
+        """Set or escalate lockout for username at the given tier."""
+        try:
+            with self._conn() as conn:
+                tier = max(0, min(tier, len(self._LOCKOUT_TIERS) - 1))
+                duration = self._LOCKOUT_TIERS[tier]
+                if duration == -1:
+                    locked_until = 'permanent'
+                else:
+                    locked_until = (
+                        datetime.datetime.now() +
+                        datetime.timedelta(seconds=duration)
+                    ).isoformat()
+                conn.execute(
+                    "INSERT OR REPLACE INTO lockouts (username, locked_until, tier) "
+                    "VALUES (?, ?, ?)",
+                    (username, locked_until, tier)
+                )
+                conn.commit()
+        except sqlite3.Error as e:
+            print(f"[DB] Set lockout error: {e}")
+
+    def clear_lockout(self, username: str):
+        """Remove lockout record (called on successful login)."""
+        try:
+            with self._conn() as conn:
+                conn.execute("DELETE FROM lockouts WHERE username=?", (username,))
+                conn.commit()
+        except sqlite3.Error:
+            pass
+
+    def get_lockout_tier(self, username: str) -> int:
+        """Return current tier (0-based) for username, or 0 if none."""
+        _, _, tier = self.get_lockout(username)
+        return tier
 
     # ── Activity Logs ────────────────────────────────────────────
     def log_activity(self, action, details=None, blocked=False, user_id=None):
@@ -224,17 +386,14 @@ class DatabaseManager:
                 total_blocked = conn.execute(
                     "SELECT COUNT(*) FROM activity_logs WHERE blocked=1"
                 ).fetchone()[0]
-                # Approximate session count by APP_START events
                 sessions = conn.execute(
                     "SELECT COUNT(*) FROM activity_logs WHERE action='APP_START'"
                 ).fetchone()[0]
-                # Most recent exam stop
                 last_row = conn.execute(
                     "SELECT timestamp FROM activity_logs "
                     "WHERE action='EXAM_MODE_STOP' ORDER BY timestamp DESC LIMIT 1"
                 ).fetchone()
                 last_session = last_row[0][:16] if last_row else "N/A"
-                # Last-session breach count (breaches since last EXAM_MODE_START)
                 start_row = conn.execute(
                     "SELECT timestamp FROM activity_logs "
                     "WHERE action='EXAM_MODE_START' ORDER BY timestamp DESC LIMIT 1"
