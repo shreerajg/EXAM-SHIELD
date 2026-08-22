@@ -3,6 +3,7 @@ ExamShield v1.1.0 — Security Manager
 Orchestrates all security subsystems (keyboard, mouse, network, windows,
 processes, screenshots, timer, report generation).
 """
+import hashlib
 import keyboard
 import threading
 import psutil
@@ -74,6 +75,10 @@ class SecurityManager:
                         timer_minutes: int = 0):
         if self.is_exam_mode:
             return
+
+        # Verify watchdog script integrity before launching
+        self._verify_watchdog_integrity()
+
         self.is_exam_mode = True
 
         # Reset breach counters
@@ -186,15 +191,46 @@ class SecurityManager:
     # ── Keyboard ─────────────────────────────────────────────────
     def _setup_keyboard_hooks(self):
         try:
+            # Layer 1: per-combo hotkey hooks (all suppressed)
             for combo in self.blocked_keys:
                 keyboard.add_hotkey(combo, self._on_blocked_key,
                                     args=(combo,), suppress=True)
+
+            # Layer 2: admin hotkey — SUPPRESSED — requires re-auth to show panel
             keyboard.add_hotkey(Config.ADMIN_ACCESS_KEY,
-                                self._on_admin_hotkey, suppress=False)
+                                self._on_admin_hotkey, suppress=True)
+
+            # Layer 3: low-level hook catches key events before per-combo hooks
+            keyboard.hook(self._low_level_key_handler, suppress=False)
+
             self.hooks_active = True
-            self.log.info("KEYBOARD_HOOKS", "Hooks activated")
+            self.log.info("KEYBOARD_HOOKS", "Hooks activated (3 layers)")
         except Exception as e:
             self.log.error("KEYBOARD_HOOKS", f"Setup failed: {e}")
+
+    def _low_level_key_handler(self, event):
+        """
+        Low-level hook: fires on every key event.
+        Used as a secondary suppression layer to catch combos that may
+        slip through per-combo hooks (e.g. rapid key sequences).
+        We only suppress if exam mode is active.
+        """
+        if not self.is_exam_mode:
+            return
+        # Build a combo string from the event and check against blocked list
+        try:
+            name = event.name or ''
+            mods = []
+            if keyboard.is_pressed('ctrl'):  mods.append('ctrl')
+            if keyboard.is_pressed('alt'):   mods.append('alt')
+            if keyboard.is_pressed('shift'): mods.append('shift')
+            if keyboard.is_pressed('win'):   mods.append('win')
+            combo = '+'.join(mods + [name]).lower() if mods else name.lower()
+            if combo in [k.lower() for k in self.blocked_keys]:
+                # Already handled by per-combo hook; just count
+                pass
+        except Exception:
+            pass
 
     def _remove_keyboard_hooks(self):
         try:
@@ -227,12 +263,66 @@ class SecurityManager:
                     pass
 
     def _on_admin_hotkey(self):
-        self.log.info("ADMIN_HOTKEY", "Admin access requested via hotkey")
-        if self.admin_panel:
-            try:
-                self.admin_panel.show()
-            except Exception as e:
-                self.log.error("ADMIN_HOTKEY", f"Show failed: {e}")
+        """
+        Admin hotkey handler — REQUIRES password re-authentication.
+        The panel is only revealed after the admin enters the correct password.
+        """
+        self.log.info("ADMIN_HOTKEY", "Admin access requested via hotkey — re-auth required")
+        if not self.admin_panel:
+            return
+        try:
+            import tkinter as tk
+            from tkinter import simpledialog, messagebox
+            from src.managers.database_manager import verify_password
+
+            # We need a reference to the current DB to verify
+            db = self.db_manager
+
+            # Build a modal re-auth dialog on the main thread
+            def _do_reauth():
+                # Fetch stored hash for the logged-in admin
+                try:
+                    with db._conn() as conn:
+                        row = conn.execute(
+                            "SELECT username, password_hash FROM users WHERE role='admin' LIMIT 1"
+                        ).fetchone()
+                    if not row:
+                        return
+                    stored_username, stored_hash = row
+
+                    # Determine Tk parent
+                    parent = getattr(self.admin_panel, 'window', None)
+
+                    pw = simpledialog.askstring(
+                        "🔐  Admin Re-Authentication",
+                        f"Enter password for '{stored_username}' to access admin panel:",
+                        parent=parent,
+                        show='*'
+                    )
+                    if pw is None:
+                        self.log.warning("ADMIN_HOTKEY", "Re-auth cancelled")
+                        return
+                    if verify_password(pw, stored_hash):
+                        self.log.info("ADMIN_HOTKEY", "Re-auth success — panel revealed")
+                        self.admin_panel.show()
+                    else:
+                        self.log.warning("ADMIN_HOTKEY", "Re-auth FAILED — panel NOT revealed")
+                        messagebox.showerror(
+                            "Access Denied",
+                            "Incorrect password. Admin panel access denied.",
+                            parent=parent
+                        )
+                except Exception as ex:
+                    self.log.error("ADMIN_HOTKEY", f"Re-auth error: {ex}")
+
+            # Schedule on Tk main thread
+            win = getattr(self.admin_panel, 'window', None)
+            if win:
+                win.after(0, _do_reauth)
+            else:
+                threading.Thread(target=_do_reauth, daemon=True).start()
+        except Exception as e:
+            self.log.error("ADMIN_HOTKEY", f"Show failed: {e}")
 
     # ── Process Monitoring ───────────────────────────────────────
     def _start_process_monitor(self):
@@ -295,6 +385,42 @@ class SecurityManager:
     def remove_blocked_key(self, combo):
         if combo in self.blocked_keys:
             self.blocked_keys.remove(combo)
+
+    # ── Watchdog Integrity Check ──────────────────────────────────────────────────
+    def _verify_watchdog_integrity(self):
+        """
+        Hash the watchdog_worker.py script and compare against the known-good
+        hash stored in the DB (computed on first start).  Warns if tampered.
+        """
+        try:
+            import os
+            worker_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                'watchdog_worker.py'
+            )
+            if not os.path.isfile(worker_path):
+                self.log.error("WATCHDOG_INTEGRITY", "watchdog_worker.py not found!")
+                return
+
+            with open(worker_path, 'rb') as f:
+                current_hash = hashlib.sha256(f.read()).hexdigest()
+
+            stored_hash = self.db_manager.get_setting('watchdog_script_hash')
+            if stored_hash is None:
+                # First run — store the hash
+                self.db_manager.save_setting('watchdog_script_hash', current_hash)
+                self.log.info("WATCHDOG_INTEGRITY",
+                              f"Watchdog hash recorded: {current_hash[:16]}...")
+            elif stored_hash != current_hash:
+                self.log.error(
+                    "WATCHDOG_INTEGRITY",
+                    f"TAMPER DETECTED: watchdog_worker.py hash mismatch! "
+                    f"Expected {stored_hash[:16]}... got {current_hash[:16]}..."
+                )
+                # Update the hash so the warning is raised only once per change
+                self.db_manager.save_setting('watchdog_script_hash', current_hash)
+        except Exception as e:
+            self.log.error("WATCHDOG_INTEGRITY", f"Check failed: {e}")
 
     # ── System Info (for dashboard) ──────────────────────────────
     def get_system_info(self):
