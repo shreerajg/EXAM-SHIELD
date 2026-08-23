@@ -516,3 +516,50 @@ class DatabaseManager:
                 conn.commit()
         except sqlite3.Error as e:
             print(f"[DB] Cleanup error: {e}")
+
+    # ── Layer 3: Session Integrity Seal (HMAC-SHA256) ─────────────────────────
+    def record_session_seal(self, session_id: str, seal_hash: str) -> bool:
+        """
+        Store an HMAC-SHA256 seal for the given session_id.
+        Call this at exam start so any later DB tampering can be detected.
+        Returns True on success.
+        """
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO session_seals (session_id, seal_hash, created_at) "
+                    "VALUES (?, ?, CURRENT_TIMESTAMP)",
+                    (session_id, seal_hash),
+                )
+                conn.commit()
+                return True
+        except sqlite3.Error as e:
+            print(f"[DB] record_session_seal error: {e}")
+            return False
+
+    def verify_session_seal(self, session_id: str, expected_hash: str) -> bool:
+        """
+        Verify that the stored seal for *session_id* matches *expected_hash*.
+        Updates verified_at timestamp regardless of outcome.
+        Returns True if seals match (no tampering), False otherwise.
+        """
+        try:
+            with self._conn() as conn:
+                row = conn.execute(
+                    "SELECT seal_hash FROM session_seals WHERE session_id=?",
+                    (session_id,),
+                ).fetchone()
+                if not row:
+                    return False  # seal was deleted — flag as tampered
+                stored = row[0]
+                match = hmac.compare_digest(stored, expected_hash)
+                conn.execute(
+                    "UPDATE session_seals SET verified_at=CURRENT_TIMESTAMP "
+                    "WHERE session_id=?",
+                    (session_id,),
+                )
+                conn.commit()
+                return match
+        except sqlite3.Error as e:
+            print(f"[DB] verify_session_seal error: {e}")
+            return False
