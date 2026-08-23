@@ -1,6 +1,9 @@
 """
 ExamShield v1.0 — Network Manager
 Blocks internet by modifying hosts file + DNS + Windows Firewall, with robust restoration.
+
+Layer 5: IPv6 outbound firewall rule added alongside IPv4 rule so that dual-stack
+         and IPv6-only connections are also blocked during exam lockdown.
 """
 import hashlib
 import os
@@ -139,11 +142,10 @@ class NetworkManager:
         if platform.system().lower() == "windows":
             subprocess.run(['ipconfig', '/flushdns'], capture_output=True, text=True)
 
-    # ── File Permission Lock (H3) ─────────────────────────────────
+    # ── File Permission Lock ──────────────────────────────────────
     def _lock_hosts_file(self):
         """Remove write permission from hosts file for all non-SYSTEM users."""
         try:
-            import subprocess
             subprocess.run(
                 ['icacls', self.hosts_path,
                  '/deny', 'Users:(W)',
@@ -157,7 +159,6 @@ class NetworkManager:
     def _unlock_hosts_file(self):
         """Restore write permission to hosts file."""
         try:
-            import subprocess
             subprocess.run(
                 ['icacls', self.hosts_path,
                  '/remove:d', 'Users',
@@ -185,8 +186,101 @@ class NetworkManager:
             try:
                 current_hash = self._hash_hosts()
                 # Tamper detected: either marker removed OR content changed
+                if current_hash != self._hosts_hash:
+                    with open(self.hosts_path, 'r',
+                              encoding='utf-8', errors='replace') as f:
+                        content = f.read()
+                    if self._MARKER_START not in content:
+                        self.log.warning("NET_GUARD",
+                                         "Re-applied tampered hosts block (marker removed)")
+                    else:
+                        self.log.warning("NET_GUARD",
+                                         "Re-applied tampered hosts block (hash mismatch)")
+                    self._write_blocked_hosts()
+                    self._lock_hosts_file()
+                    self._hosts_hash = self._hash_hosts()
+            except Exception:
+                pass
+            self._stop_event.wait(0.5)   # 0.5 s tight guard
+
+    # ── Windows Firewall — IPv4 (second-layer) ────────────────────────────────
+    _FW_RULE_NAME    = "ExamShield_BlockOutbound"
+    _FW_RULE_NAME_V6 = "ExamShield_BlockOutboundV6"  # Layer 5
+
+    def _add_firewall_rules(self):
+        """
+        Block all outbound non-loopback IPv4 traffic via Windows Firewall.
+        This is a second layer on top of the hosts file.
+        """
+        if platform.system().lower() != 'windows':
+            return
+        try:
+            # Remove any stale rule first
+            self._remove_firewall_rules()
+            subprocess.run(
+                ['netsh', 'advfirewall', 'firewall', 'add', 'rule',
+                 f'name={self._FW_RULE_NAME}',
+                 'dir=out', 'action=block',
+                 'remoteip=1.0.0.0-126.255.255.255,128.0.0.0-223.255.255.255',
+                 'protocol=any', 'enable=yes', 'profile=any'],
+                capture_output=True, timeout=15
+            )
+            self.log.info("NET_FW", f"Firewall IPv4 rule '{self._FW_RULE_NAME}' added")
         except Exception as e:
-            self.log.error("NET_FW", f"Firewall rule remove failed: {e}")
+            self.log.error("NET_FW", f"Firewall IPv4 rule add failed: {e}")
+
+    def _remove_firewall_rules(self):
+        """Remove the ExamShield IPv4 outbound block rule."""
+        if platform.system().lower() != 'windows':
+            return
+        try:
+            subprocess.run(
+                ['netsh', 'advfirewall', 'firewall', 'delete', 'rule',
+                 f'name={self._FW_RULE_NAME}'],
+                capture_output=True, timeout=15
+            )
+            self.log.info("NET_FW", f"Firewall IPv4 rule '{self._FW_RULE_NAME}' removed")
+        except Exception as e:
+            self.log.error("NET_FW", f"Firewall IPv4 rule remove failed: {e}")
+
+    # ── Layer 5: IPv6 Firewall Block ──────────────────────────────────────────
+    def _add_firewall_rules_v6(self):
+        """
+        Block ALL outbound IPv6 traffic via Windows Firewall.
+        The existing IPv4 rule left IPv6 entirely open; this closes that gap.
+        Students could otherwise reach IPv6-only hosts or dual-stack services
+        via their IPv6 address, bypassing the hosts file + IPv4 firewall.
+        """
+        if platform.system().lower() != 'windows':
+            return
+        try:
+            self._remove_firewall_rules_v6()  # purge stale rule first
+            subprocess.run(
+                ['netsh', 'advfirewall', 'firewall', 'add', 'rule',
+                 f'name={self._FW_RULE_NAME_V6}',
+                 'dir=out', 'action=block',
+                 'protocol=any',
+                 'remoteip=::/0',          # all IPv6 destinations
+                 'enable=yes', 'profile=any'],
+                capture_output=True, timeout=15
+            )
+            self.log.info("NET_FW", f"Firewall IPv6 rule '{self._FW_RULE_NAME_V6}' added")
+        except Exception as e:
+            self.log.error("NET_FW", f"Firewall IPv6 rule add failed: {e}")
+
+    def _remove_firewall_rules_v6(self):
+        """Remove the ExamShield IPv6 outbound block rule."""
+        if platform.system().lower() != 'windows':
+            return
+        try:
+            subprocess.run(
+                ['netsh', 'advfirewall', 'firewall', 'delete', 'rule',
+                 f'name={self._FW_RULE_NAME_V6}'],
+                capture_output=True, timeout=15
+            )
+            self.log.info("NET_FW", f"Firewall IPv6 rule '{self._FW_RULE_NAME_V6}' removed")
+        except Exception as e:
+            self.log.error("NET_FW", f"Firewall IPv6 rule remove failed: {e}")
 
     # ── Helpers ──────────────────────────────────────────────────────
     def get_blocked_websites(self):
