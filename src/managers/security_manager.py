@@ -50,6 +50,11 @@ class SecurityManager:
         self.webcam_manager.set_security_manager(self)
         self.audio_manager.set_security_manager(self)
 
+        # Layer 6: Idle Guard
+        self.idle_guard = IdleGuard(
+            db_manager, self.screenshot_manager, security_manager=self
+        )
+
         # Thread control
         self._proc_stop   = threading.Event()
         self._proc_thread = None
@@ -57,17 +62,21 @@ class SecurityManager:
         # Admin panel reference (set later)
         self.admin_panel  = None
 
-        # ── Breach counter ─────────────────────────────────────────
-        # Tracks blocked events since the last lockdown start
+        # Breach counter - Tracks blocked events since the last lockdown start
         self.breach_counts: dict[str, int] = {
             'keyboard': 0, 'network': 0,
             'processes': 0, 'usb': 0, 'windows': 0,
-            'webcam': 0, 'audio': 0,
+            'webcam': 0, 'audio': 0, 'idle': 0,  # Layer 6
         }
 
-        # ── Active session metadata ────────────────────────────────
+        # Active session metadata
         self._session_profile   = ""
         self._session_timer_min = 0
+
+        # Layer 3: Session seal state
+        self._session_id: str   = ""
+        self._session_seal: str = ""  # HMAC-SHA256 computed at start
+
 
     def set_admin_panel(self, panel):
         self.admin_panel = panel
@@ -479,7 +488,8 @@ class SecurityManager:
         except Exception as e:
             self.log.error("WATCHDOG_INTEGRITY", f"Check failed: {e}")
 
-    # ── System Info (for dashboard) ──────────────────────────────
+
+    # System Info (for dashboard)
     def get_system_info(self):
         try:
             return {
@@ -499,6 +509,8 @@ class SecurityManager:
                 'single_monitor':   not self.hardware_manager.has_multiple_monitors(),
                 'breach_counts':    dict(self.breach_counts),
                 'screenshots_taken':self.screenshot_manager.get_count(),
+                'idle_seconds':     self.idle_guard.idle_seconds,  # Layer 6
             }
         except Exception:
             return {}
+
