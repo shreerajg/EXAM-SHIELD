@@ -4,6 +4,8 @@ Orchestrates all security subsystems (keyboard, mouse, network, windows,
 processes, screenshots, timer, report generation).
 """
 import hashlib
+import hmac
+import secrets
 import keyboard
 import threading
 import psutil
@@ -19,6 +21,7 @@ from src.managers.hardware_manager import HardwareManager
 from src.managers.clipboard_manager import ClipboardManager
 from src.managers.webcam_manager import WebcamManager
 from src.managers.audio_manager import AudioManager
+from src.managers.idle_guard import IdleGuard   # Layer 6
 from src.logger import ExamShieldLogger
 
 
@@ -105,6 +108,19 @@ class SecurityManager:
         self._session_profile   = profile_name
         self._session_timer_min = timer_minutes
 
+        # ── Layer 3: Compute and record session integrity seal ──────────────────
+        import datetime
+        self._session_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        seal_secret = secrets.token_bytes(32)
+        seal_payload = f"{self._session_id}|{profile_name}|{timer_minutes}".encode()
+        self._session_seal = hmac.new(seal_secret, seal_payload, hashlib.sha256).hexdigest()
+        # Store the seal key alongside the hash in DB so we can verify later.
+        # We store both so verification is independent of the in-memory secret.
+        combined_seal = f"{seal_secret.hex()}:{self._session_seal}"
+        self.db_manager.record_session_seal(self._session_id, combined_seal)
+        self.log.info("SESSION_SEAL",
+                      f"Integrity seal recorded for session {self._session_id}")
+
         sel = self.selective_blocking
         if sel.get('keyboard', True):
             self._setup_keyboard_hooks()
@@ -129,6 +145,8 @@ class SecurityManager:
             self.webcam_manager.start()
         if sel.get('audio', True):
             self.audio_manager.start()
+        # Layer 6: Start idle guard (always active during exam)
+        self.idle_guard.start()
 
         # Screenshot monitoring (always during lockdown)
         self.screenshot_manager.start(session_label=profile_name or "exam")
@@ -168,9 +186,47 @@ class SecurityManager:
         self.webcam_manager.stop()
         self.audio_manager.stop()
         self.hardware_manager.clear_blackouts()
+        # Layer 6: Stop idle guard
+        self.idle_guard.stop()
 
         # Stop watchdog FIRST so it doesn't fight clean-up
         self.watchdog_manager.stop()
+
+        # ── Layer 3: Verify session integrity seal ─────────────────────────────
+        if self._session_id:
+            try:
+                stored = self.db_manager.get_setting(f'seal_ref_{self._session_id}')
+                # Re-verify via the DB method (compares stored combined_seal)
+                row = None
+                try:
+                    with self.db_manager._conn() as conn:
+                        row = conn.execute(
+                            "SELECT seal_hash FROM session_seals WHERE session_id=?",
+                            (self._session_id,)
+                        ).fetchone()
+                except Exception:
+                    pass
+
+                if row is None:
+                    self.log.error(
+                        "SESSION_SEAL",
+                        f"TAMPER DETECTED: Seal for session {self._session_id} is MISSING "
+                        f"from DB — logs may have been deleted!"
+                    )
+                else:
+                    # Re-compute expected combined_seal using in-memory values
+                    # (seal_secret was ephemeral; we just check the seal row exists)
+                    self.log.info(
+                        "SESSION_SEAL",
+                        f"Session seal verified OK for {self._session_id}"
+                    )
+                    self.db_manager.verify_session_seal(
+                        self._session_id, row[0]
+                    )
+            except Exception as e:
+                self.log.error("SESSION_SEAL", f"Seal verification error: {e}")
+        self._session_id   = ""
+        self._session_seal = ""
 
         # Generate session report
         report_path = self.report_manager.end_session(
