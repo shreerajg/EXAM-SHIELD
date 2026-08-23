@@ -61,6 +61,29 @@ class Config:
         'ctrl+alt+up', 'ctrl+alt+down', 'ctrl+alt+left', 'ctrl+alt+right',
         # Function keys
         'f11', 'f1',
+        # ── Layer 1: Screen capture & DevTools ──────────────────────
+        # PrintScreen variants (silent screenshots)
+        'print screen',
+        'alt+print screen',
+        'ctrl+print screen',
+        'win+print screen',
+        # Snipping Tool (Win+Shift+S opens the snip overlay)
+        'win+shift+s',
+        # Browser DevTools — all common shortcuts
+        'f12',
+        'ctrl+shift+i',        # DevTools (Chrome/Edge/Firefox)
+        'ctrl+shift+j',        # Console (Chrome/Edge)
+        'ctrl+shift+c',        # Inspect element
+        'ctrl+shift+k',        # Console (Firefox)
+        # Browser save / print / view-source
+        'ctrl+s',              # Save page as
+        'ctrl+p',              # Print (can export page content)
+        'ctrl+u',              # View page source
+        # Additional browser tab/navigation shortcuts
+        'ctrl+l',              # Focus address bar
+        'alt+d',               # Focus address bar (IE/Edge)
+        'ctrl+t',              # New tab
+        'ctrl+shift+p',        # Private/Incognito window
     ]
 
     # ── Mouse Blocking ───────────────────────────────────────────
@@ -138,10 +161,55 @@ class Config:
         'autohotkey.exe', 'ahk.exe', 'keypirinha.exe',
         # Screen sharing / remote input
         'rustdesk.exe', 'chrome remote desktop.exe',
+        # ── Layer 2: Screen recording software ──────────────────────
+        'obs32.exe', 'obs64.exe',              # OBS Studio
+        'bandicam.exe',                         # Bandicam
+        'fraps.exe',                            # Fraps
+        'camstudio.exe',                        # CamStudio
+        'flashbackrecorder.exe',                # FlashBack
+        'sharex.exe',                           # ShareX (screenshot+record)
+        'gyazo.exe',                            # Gyazo
+        'lightshot.exe',                        # Lightshot
+        'greenshot.exe',                        # Greenshot
+        'screenpresso.exe',                     # Screenpresso
+        'picpick.exe',                          # PicPick
+        'snagit32.exe', 'snagiteditor.exe',     # TechSmith Snagit
+        'recordit.exe',                         # Recordit
+        'loom.exe',                             # Loom
+        'camtasia.exe',                         # Camtasia
+        # ── Layer 2: AI desktop assistants (cheating vectors) ──────
+        'chatgpt.exe',                          # OpenAI ChatGPT desktop
+        'claude.exe',                           # Anthropic Claude desktop
+        'copilot.exe',                          # Microsoft Copilot
+        'perplexity.exe',                       # Perplexity AI
+        'cursor.exe',                           # Cursor AI IDE
+        'github copilot.exe',
+        # ── Layer 2: Windows scripting engines (automation bypass) ──
+        'wscript.exe',                          # Windows Script Host (VBScript/JS)
+        'cscript.exe',                          # Console Script Host
+        'mshta.exe',                            # HTA application host
+        # ── Layer 2: Additional browsers ────────────────────────────
+        'vivaldi.exe',                          # Vivaldi browser
+        'brave.exe',                            # Brave browser
+        'msedgewebview2.exe',                   # Edge WebView2 (embedded)
+        'opera.exe',                            # Opera browser
+        # ── Layer 2: VM frontends (if running during exam) ──────────
+        'virtualboxvm.exe', 'vmplayer.exe',
+        'vmware-vmx.exe',
     ]
 
     # ── Process Monitor Interval (seconds) ───────────────────────
     PROCESS_MONITOR_INTERVAL = 0.5   # seconds — tight enough to catch fast attempts
+
+    # ── Layer 6: Idle Detection ───────────────────────────────────
+    # Seconds of no mouse/keyboard input before capturing an idle-absence screenshot
+    IDLE_ALERT_SEC = 300             # 5 minutes default
+    IDLE_COOLDOWN_SEC = 60           # minimum gap between repeated idle alerts
+
+    # ── Layer 5: Full Internet Block ─────────────────────────────
+    # When True, blocks ALL outbound traffic (IPv4 + IPv6), not just listed sites.
+    # Recommended for high-security exams. Requires admin elevation (same as existing rules).
+    FULL_INTERNET_BLOCK = False
 
     # ── UI Palette ───────────────────────────────────────────────
     COLORS = {
