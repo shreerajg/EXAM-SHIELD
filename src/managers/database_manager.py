@@ -98,6 +98,13 @@ class DatabaseManager:
                     username   TEXT NOT NULL,
                     timestamp  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )''')
+                # ── Layer 3: Tamper-evident session seal table ──────────────────────
+                c.execute('''CREATE TABLE IF NOT EXISTS session_seals (
+                    session_id  TEXT PRIMARY KEY,
+                    seal_hash   TEXT NOT NULL,
+                    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    verified_at TIMESTAMP
+                )''')
                 # Persistent lockout table (survives process restarts)
                 c.execute('''CREATE TABLE IF NOT EXISTS lockouts (
                     username    TEXT PRIMARY KEY,
