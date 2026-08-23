@@ -2,6 +2,8 @@
 ExamShield v1.0 — Screenshot Manager
 Periodic and violation-triggered screenshot capture during exam lockdown.
 """
+import hashlib
+import json
 import os
 import threading
 import datetime
@@ -87,8 +89,47 @@ class ScreenshotManager:
             img.save(path, "PNG", optimize=True)
             with self._lock:
                 self.count += 1
+            # ── Layer 4: Append entry to session manifest ─────────────────
+            self._append_manifest(filename, path, reason)
         except Exception as e:
             print(f"[Screenshot] Capture failed: {e}")
+
+    def _append_manifest(self, filename: str, path: str, reason: str):
+        """
+        Layer 4: Append a tamper-evident entry to session_manifest.json.
+        Each entry contains the filename, SHA-256 hash of the saved PNG,
+        the capture timestamp, and the trigger reason.
+        """
+        try:
+            # Compute SHA-256 of the saved image file
+            sha256 = ""
+            try:
+                with open(path, 'rb') as f:
+                    sha256 = hashlib.sha256(f.read()).hexdigest()
+            except Exception:
+                pass
+
+            entry = {
+                "filename":  filename,
+                "sha256":    sha256,
+                "timestamp": datetime.datetime.now().isoformat(),
+                "reason":    reason,
+            }
+
+            manifest_path = os.path.join(self.session_dir, "session_manifest.json")
+            # Load existing entries or start fresh
+            entries = []
+            if os.path.exists(manifest_path):
+                try:
+                    with open(manifest_path, 'r', encoding='utf-8') as mf:
+                        entries = json.load(mf)
+                except Exception:
+                    entries = []
+            entries.append(entry)
+            with open(manifest_path, 'w', encoding='utf-8') as mf:
+                json.dump(entries, mf, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[Screenshot] Manifest update failed: {e}")
 
     # ── Accessors ────────────────────────────────────────────────
     @property
