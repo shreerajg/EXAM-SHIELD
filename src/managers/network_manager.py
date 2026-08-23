@@ -40,7 +40,8 @@ class NetworkManager:
             self._write_blocked_hosts()
             self._lock_hosts_file()          # deny write access
             self._set_dns_loopback()
-            self._add_firewall_rules()       # second-layer: Windows Firewall
+            self._add_firewall_rules()       # second-layer: Windows Firewall (IPv4)
+            self._add_firewall_rules_v6()    # Layer 5: Windows Firewall (IPv6)
             self.is_blocked = True
             self._hosts_hash = self._hash_hosts()   # record expected hash
             self._stop_event.clear()
@@ -49,7 +50,7 @@ class NetworkManager:
             )
             self._guard_thread.start()
             self.log.info("NET_BLOCK_START",
-                          "Internet blocking activated (hosts + DNS + firewall)")
+                          "Internet blocking activated (hosts + DNS + firewall IPv4+IPv6)")
         except Exception as e:
             self.log.error("NET_BLOCK", f"Start failed: {e}")
 
@@ -63,7 +64,8 @@ class NetworkManager:
             self._restore_hosts()
             self._restore_dns()
             self._flush_dns()
-            self._remove_firewall_rules()    # clean up firewall rules
+            self._remove_firewall_rules()    # clean up IPv4 rule
+            self._remove_firewall_rules_v6() # Layer 5: clean up IPv6 rule
             self.log.info("NET_BLOCK_STOP", "Internet access restored")
         except Exception as e:
             self.log.error("NET_BLOCK", f"Stop failed: {e}")
@@ -183,59 +185,6 @@ class NetworkManager:
             try:
                 current_hash = self._hash_hosts()
                 # Tamper detected: either marker removed OR content changed
-                if current_hash != self._hosts_hash:
-                    with open(self.hosts_path, 'r',
-                              encoding='utf-8', errors='replace') as f:
-                        content = f.read()
-                    if self._MARKER_START not in content:
-                        self.log.warning("NET_GUARD",
-                                         "Re-applied tampered hosts block (marker removed)")
-                    else:
-                        self.log.warning("NET_GUARD",
-                                         "Re-applied tampered hosts block (hash mismatch)")
-                    self._write_blocked_hosts()
-                    self._lock_hosts_file()
-                    self._hosts_hash = self._hash_hosts()
-            except Exception:
-                pass
-            self._stop_event.wait(0.5)   # 0.5 s tight guard
-
-    # ── Windows Firewall (second-layer) ──────────────────────────────────────
-    _FW_RULE_NAME = "ExamShield_BlockOutbound"
-
-    def _add_firewall_rules(self):
-        """
-        Block all outbound non-loopback traffic via Windows Firewall.
-        This is a second layer on top of the hosts file.
-        """
-        if platform.system().lower() != 'windows':
-            return
-        try:
-            # Remove any stale rule first
-            self._remove_firewall_rules()
-            subprocess.run(
-                ['netsh', 'advfirewall', 'firewall', 'add', 'rule',
-                 f'name={self._FW_RULE_NAME}',
-                 'dir=out', 'action=block',
-                 'remoteip=1.0.0.0-126.255.255.255,128.0.0.0-223.255.255.255',
-                 'protocol=any', 'enable=yes', 'profile=any'],
-                capture_output=True, timeout=15
-            )
-            self.log.info("NET_FW", f"Firewall rule '{self._FW_RULE_NAME}' added")
-        except Exception as e:
-            self.log.error("NET_FW", f"Firewall rule add failed: {e}")
-
-    def _remove_firewall_rules(self):
-        """Remove the ExamShield outbound block rule."""
-        if platform.system().lower() != 'windows':
-            return
-        try:
-            subprocess.run(
-                ['netsh', 'advfirewall', 'firewall', 'delete', 'rule',
-                 f'name={self._FW_RULE_NAME}'],
-                capture_output=True, timeout=15
-            )
-            self.log.info("NET_FW", f"Firewall rule '{self._FW_RULE_NAME}' removed")
         except Exception as e:
             self.log.error("NET_FW", f"Firewall rule remove failed: {e}")
 
