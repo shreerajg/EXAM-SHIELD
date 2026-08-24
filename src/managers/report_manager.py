@@ -138,8 +138,11 @@ class ReportManager:
         with open(path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(lines))
 
-        # Also produce HTML report
+        # Also produce HTML and PDF reports
         self._write_html_report(ts, start_str, end_str, dur_str,
+                                breach_counts, screenshots_taken,
+                                screenshot_dir, blocked_events, total_events)
+        self._write_pdf_report(ts, start_str, end_str, dur_str,
                                 breach_counts, screenshots_taken,
                                 screenshot_dir, blocked_events, total_events)
 
