@@ -159,8 +159,5 @@ class HardwareManager:
             if self.is_virtual_machine():
                 return False, "Virtual Machine detected. Exam must be taken on a physical host."
                 
-        if block_multi_monitor:
-            if self.has_multiple_monitors():
-                return False, "Multiple monitors detected. Please disconnect extra displays."
-                
+        # Multi-monitor is handled natively by disable_secondary_monitors in SecurityManager.
         return True, "Checks passed"
