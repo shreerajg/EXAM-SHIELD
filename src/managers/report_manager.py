@@ -285,6 +285,81 @@ class ReportManager:
         except Exception as e:
             print(f"[Report] HTML write failed: {e}")
 
+    # ── PDF Report ───────────────────────────────────────────────
+    def _write_pdf_report(self, ts: str, start_str: str, end_str: str,
+                            dur_str: str, breach_counts: dict,
+                            screenshots_taken: int, screenshot_dir: str,
+                            blocked_events: list, total_events: int):
+        try:
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.pagesizes import letter
+            from reportlab.lib.colors import HexColor
+        except ImportError:
+            print("[Report] reportlab not installed. Skipping PDF export.")
+            return
+
+        pdf_path = os.path.join(Config.REPORT_DIR, f"exam_report_{ts}.pdf")
+        
+        try:
+            c = canvas.Canvas(pdf_path, pagesize=letter)
+            width, height = letter
+            
+            # Title
+            c.setFont("Helvetica-Bold", 16)
+            c.setFillColor(HexColor("#00d4ff"))
+            c.drawString(50, height - 50, "EXAM SHIELD - Session Report")
+            
+            c.setFont("Helvetica", 10)
+            c.setFillColor(HexColor("#6a6a9e"))
+            c.drawString(50, height - 65, f"Generated: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}")
+            
+            # Session Info
+            c.setFont("Helvetica-Bold", 12)
+            c.setFillColor(HexColor("#000000"))
+            y = height - 100
+            c.drawString(50, y, "Session Info")
+            y -= 15
+            c.setFont("Helvetica", 10)
+            c.drawString(60, y, f"Profile: {self._profile_name or '(custom)'}"); y -= 12
+            c.drawString(60, y, f"Start: {start_str}"); y -= 12
+            c.drawString(60, y, f"End: {end_str}"); y -= 12
+            c.drawString(60, y, f"Duration: {dur_str}"); y -= 12
+            c.drawString(60, y, f"Timer set: {self._timer_minutes} min" if self._timer_minutes else "Timer set: (not used)"); y -= 20
+            
+            # Active Modules
+            c.setFont("Helvetica-Bold", 12)
+            c.drawString(50, y, "Active Modules"); y -= 15
+            c.setFont("Helvetica", 10)
+            for mod in self._active_modules:
+                c.drawString(60, y, f"✓ {mod.capitalize()}"); y -= 12
+            y -= 8
+            
+            # Breach Summary
+            c.setFont("Helvetica-Bold", 12)
+            c.setFillColor(HexColor("#ff4757"))
+            c.drawString(50, y, "Breach Summary"); y -= 15
+            c.setFont("Helvetica", 10)
+            c.setFillColor(HexColor("#000000"))
+            
+            for key, label in [
+                ('keyboard', 'Blocked Keystrokes'),
+                ('network', 'Network Attempts'),
+                ('processes', 'Suspicious Processes'),
+                ('usb', 'USB Block Events'),
+                ('windows', 'Window Violations'),
+            ]:
+                v = breach_counts.get(key, 0)
+                c.drawString(60, y, f"{label}: {v}"); y -= 12
+                
+            total_breaches = sum(breach_counts.values())
+            y -= 4
+            c.setFont("Helvetica-Bold", 10)
+            c.drawString(60, y, f"Total Blocked Events: {total_breaches}"); y -= 20
+            
+            c.save()
+        except Exception as e:
+            print(f"[Report] PDF write failed: {e}")
+
     def _is_in_session(self, ts_str: str) -> bool:
         """Return True if ts_str falls within this session's window."""
         if not self._session_start:
