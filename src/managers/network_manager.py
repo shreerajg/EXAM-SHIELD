@@ -12,6 +12,8 @@ import platform
 import subprocess
 import threading
 import time
+import socket
+import ipaddress
 from src.config import Config
 from src.logger import ExamShieldLogger
 
@@ -102,6 +104,16 @@ class NetworkManager:
         for site in sorted(expanded_sites):
             lines.append(f"127.0.0.1 {site}")
             lines.append(f"::1 {site}")
+            
+        allowed_sites = getattr(Config, 'ALLOWED_WEBSITES', [])
+        for site in allowed_sites:
+            try:
+                ip = socket.gethostbyname(site)
+                lines.append(f"{ip} {site}")
+                lines.append(f"{ip} www.{site}")
+            except Exception:
+                pass
+                
         lines.append(self._MARKER_END)
         block = "\n".join(lines)
         try:
@@ -217,11 +229,42 @@ class NetworkManager:
         try:
             # Remove any stale rule first
             self._remove_firewall_rules()
+            
+            allowed_ips = set()
+            allowed_sites = getattr(Config, 'ALLOWED_WEBSITES', [])
+            for site in allowed_sites:
+                try:
+                    allowed_ips.add(socket.gethostbyname(site))
+                except Exception:
+                    pass
+            
+            networks = [ipaddress.IPv4Network('0.0.0.0/0')]
+            exclude_cidrs = [ipaddress.IPv4Network('127.0.0.0/8')]
+            for ip in allowed_ips:
+                exclude_cidrs.append(ipaddress.IPv4Network(f'{ip}/32'))
+                
+            for exc in exclude_cidrs:
+                new_networks = []
+                for net in networks:
+                    if exc.overlaps(net):
+                        new_networks.extend(net.address_exclude(exc))
+                    else:
+                        new_networks.append(net)
+                networks = new_networks
+                
+            ranges = []
+            for net in sorted(networks, key=lambda x: x.network_address):
+                if net.prefixlen == 32:
+                    ranges.append(str(net.network_address))
+                else:
+                    ranges.append(f'{net.network_address}-{net.broadcast_address}')
+            remoteip = ','.join(ranges)
+
             subprocess.run(
                 ['netsh', 'advfirewall', 'firewall', 'add', 'rule',
                  f'name={self._FW_RULE_NAME}',
                  'dir=out', 'action=block',
-                 'remoteip=1.0.0.0-126.255.255.255,128.0.0.0-223.255.255.255',
+                 f'remoteip={remoteip}',
                  'protocol=any', 'enable=yes', 'profile=any'],
                 capture_output=True, timeout=15
             )
