@@ -446,8 +446,44 @@ class AdminPanel:
                    bg=C['surface'], pady=4
                    ).pack(side=tk.LEFT, padx=(8, 0), pady=8)
 
+        styled_btn(hist_row, "📤 Export Latest Report",
+                   self._export_latest_report,
+                   bg=C['surface'], pady=4
+                   ).pack(side=tk.LEFT, padx=(8, 0), pady=8)
+
         self._refresh_session_history()
         return pg
+
+    def _export_latest_report(self):
+        try:
+            import os, glob, shutil
+            from src.config import Config
+            from tkinter import filedialog, messagebox
+            
+            reports = glob.glob(os.path.join(Config.REPORT_DIR, '*.html'))
+            if not reports:
+                self._toast("No reports found", C['warning'])
+                return
+            latest = max(reports, key=os.path.getctime)
+            
+            path = filedialog.asksaveasfilename(
+                defaultextension='.html',
+                initialfile=os.path.basename(latest),
+                filetypes=[('HTML Report', '*.html'), ('Text Report', '*.txt'), ('All', '*.*')],
+                parent=self.window)
+            
+            if path:
+                src = latest
+                if path.endswith('.txt'):
+                    txt_version = latest.replace('.html', '.txt')
+                    if os.path.exists(txt_version):
+                        src = txt_version
+                
+                shutil.copy2(src, path)
+                self._toast(f"💾 Report exported to {os.path.basename(path)}", C['success'])
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror('Export Error', str(e), parent=self.window)
 
     def _stat_card(self, parent, label, color, is_bar=True):
         outer = tk.Frame(parent, bg=color, padx=1, pady=0)
