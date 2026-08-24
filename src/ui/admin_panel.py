@@ -469,7 +469,7 @@ class AdminPanel:
             path = filedialog.asksaveasfilename(
                 defaultextension='.html',
                 initialfile=os.path.basename(latest),
-                filetypes=[('HTML Report', '*.html'), ('Text Report', '*.txt'), ('All', '*.*')],
+                filetypes=[('HTML Report', '*.html'), ('PDF Report', '*.pdf'), ('Text Report', '*.txt'), ('All', '*.*')],
                 parent=self.window)
             
             if path:
@@ -478,6 +478,10 @@ class AdminPanel:
                     txt_version = latest.replace('.html', '.txt')
                     if os.path.exists(txt_version):
                         src = txt_version
+                elif path.endswith('.pdf'):
+                    pdf_version = latest.replace('.html', '.pdf')
+                    if os.path.exists(pdf_version):
+                        src = pdf_version
                 
                 shutil.copy2(src, path)
                 self._toast(f"💾 Report exported to {os.path.basename(path)}", C['success'])
