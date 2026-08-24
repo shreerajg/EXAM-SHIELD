@@ -14,8 +14,59 @@ import threading
 import time
 import socket
 import ipaddress
+import socketserver
+import dnslib
 from src.config import Config
 from src.logger import ExamShieldLogger
+
+class DNSProxyHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        data, sock = self.request
+        try:
+            request = dnslib.DNSRecord.parse(data)
+            qname = str(request.q.qname).lower().rstrip('.')
+            
+            allowed = False
+            allowed_sites = getattr(Config, 'ALLOWED_WEBSITES', [])
+            for site in allowed_sites:
+                site_lower = site.lower().rstrip('.')
+                if site_lower.startswith('*.'):
+                    suffix = site_lower[2:]
+                    if qname == suffix or qname.endswith('.' + suffix):
+                        allowed = True
+                        break
+                elif qname == site_lower:
+                    allowed = True
+                    break
+                    
+            if allowed:
+                # Forward query to public DNS
+                proxy_req = request.send('8.8.8.8', 53)
+                reply = dnslib.DNSRecord.parse(proxy_req)
+                
+                # Punch hole in firewall dynamically
+                ips = []
+                for rr in reply.rr:
+                    if rr.rtype in (1, 28): # A, AAAA
+                        ip = str(rr.rdata)
+                        ips.append(ip)
+                if ips:
+                    self.server.network_manager._add_dynamic_firewall_rule(ips)
+                    
+                sock.sendto(reply.pack(), self.client_address)
+            else:
+                # Blocked: Return 127.0.0.1
+                reply = request.reply()
+                reply.add_answer(*dnslib.RR.fromZone(f"{qname} 60 A 127.0.0.1"))
+                sock.sendto(reply.pack(), self.client_address)
+        except Exception as e:
+            pass
+
+class DNSProxyServer(socketserver.UDPServer):
+    def __init__(self, server_address, RequestHandlerClass, network_manager):
+        super().__init__(server_address, RequestHandlerClass)
+        self.network_manager = network_manager
+
 
 
 class NetworkManager:
@@ -28,6 +79,9 @@ class NetworkManager:
         self._backup_path = None
         self._guard_thread = None
         self._stop_event = threading.Event()
+        self.allowed_dynamic_ips = set()
+        self._dns_server = None
+        self._dns_thread = None
 
     @staticmethod
     def _hosts_path():
@@ -38,24 +92,25 @@ class NetworkManager:
 
     # ── Public API ───────────────────────────────────────────────
     def start_blocking(self):
-        if self.is_blocked or not self.hosts_path:
+        if self.is_blocked:
             return
         try:
-            self._backup_hosts()
-            self._write_blocked_hosts()
-            self._lock_hosts_file()          # deny write access
+            # Clear previous dynamic IPs
+            self.allowed_dynamic_ips.clear()
+            
+            # Start local DNS Proxy
+            self._dns_server = DNSProxyServer(('127.0.0.1', 53), DNSProxyHandler, self)
+            self._dns_thread = threading.Thread(target=self._dns_server.serve_forever, daemon=True)
+            self._dns_thread.start()
+            
             self._set_dns_loopback()
             self._add_firewall_rules()       # second-layer: Windows Firewall (IPv4)
             self._add_firewall_rules_v6()    # Layer 5: Windows Firewall (IPv6)
+            
             self.is_blocked = True
-            self._hosts_hash = self._hash_hosts()   # record expected hash
             self._stop_event.clear()
-            self._guard_thread = threading.Thread(
-                target=self._guard_loop, daemon=True
-            )
-            self._guard_thread.start()
             self.log.info("NET_BLOCK_START",
-                          "Internet blocking activated (hosts + DNS + firewall IPv4+IPv6)")
+                          "Internet blocking activated (DNS Proxy + firewall IPv4+IPv6)")
         except Exception as e:
             self.log.error("NET_BLOCK", f"Start failed: {e}")
 
@@ -65,8 +120,11 @@ class NetworkManager:
         self.is_blocked = False
         self._stop_event.set()
         try:
-            self._unlock_hosts_file()        # restore write access first
-            self._restore_hosts()
+            if self._dns_server:
+                self._dns_server.shutdown()
+                self._dns_server.server_close()
+                self._dns_server = None
+                
             self._restore_dns()
             self._flush_dns()
             self._remove_firewall_rules()    # clean up IPv4 rule
@@ -219,10 +277,19 @@ class NetworkManager:
     _FW_RULE_NAME    = "ExamShield_BlockOutbound"
     _FW_RULE_NAME_V6 = "ExamShield_BlockOutboundV6"  # Layer 5
 
+    def _add_dynamic_firewall_rule(self, ips):
+        new_ips = []
+        for ip in ips:
+            if ip not in self.allowed_dynamic_ips:
+                self.allowed_dynamic_ips.add(ip)
+                new_ips.append(ip)
+        if new_ips:
+            threading.Thread(target=self._add_firewall_rules, daemon=True).start()
+
     def _add_firewall_rules(self):
         """
         Block all outbound non-loopback IPv4 traffic via Windows Firewall.
-        This is a second layer on top of the hosts file.
+        This is a second layer on top of the DNS proxy.
         """
         if platform.system().lower() != 'windows':
             return
@@ -230,7 +297,7 @@ class NetworkManager:
             # Remove any stale rule first
             self._remove_firewall_rules()
             
-            allowed_ips = set()
+            allowed_ips = set(self.allowed_dynamic_ips)
             allowed_sites = getattr(Config, 'ALLOWED_WEBSITES', [])
             for site in allowed_sites:
                 try:
