@@ -110,8 +110,7 @@ class SecurityManager:
             raise RuntimeError(err_msg)
 
         if sel.get('multi_monitor', True):
-            if self.admin_panel and hasattr(self.admin_panel, 'window'):
-                self.hardware_manager.blackout_secondary_monitors(self.admin_panel.window)
+            self.hardware_manager.disable_secondary_monitors()
 
         # Store session metadata for the report
         self._session_profile   = profile_name
@@ -194,7 +193,7 @@ class SecurityManager:
         self.clipboard_manager.stop()
         self.webcam_manager.stop()
         self.audio_manager.stop()
-        self.hardware_manager.clear_blackouts()
+        self.hardware_manager.restore_secondary_monitors()
         # Layer 6: Stop idle guard
         self.idle_guard.stop()
 
