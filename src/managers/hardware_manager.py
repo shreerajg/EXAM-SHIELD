@@ -102,17 +102,27 @@ class HardwareManager:
         except Exception:
             pass
         
-        # 4. Fallback to WMI if available (slow but accurate)
+        # 4. Fallback to PowerShell Get-CimInstance (Checks Hypervisor Bit + Model)
         try:
             output = subprocess.check_output(
-                ["wmic", "computersystem", "get", "model"],
+                ["powershell.exe", "-Command", "Get-CimInstance Win32_ComputerSystem | Select-Object Model, HypervisorPresent | ConvertTo-Json"],
                 creationflags=subprocess.CREATE_NO_WINDOW,
-                timeout=3
-            ).decode('utf-8', errors='ignore').lower()
+                timeout=5
+            ).decode('utf-8', errors='ignore')
             
+            import json
+            data = json.loads(output)
+            
+            # Check CPU Hypervisor Bit
+            if data.get("HypervisorPresent") is True:
+                self.log.warning("HARDWARE", "VM detected via CPU Hypervisor bit")
+                return True
+                
+            # Check System Model
+            model = str(data.get("Model", "")).lower()
             for indicator in vm_indicators:
-                if indicator in output:
-                    self.log.warning("HARDWARE", f"VM detected via WMIC: {indicator}")
+                if indicator in model:
+                    self.log.warning("HARDWARE", f"VM detected via System Model: {indicator}")
                     return True
         except Exception:
             pass
