@@ -102,7 +102,7 @@ class SecurityManager:
         # Hardware Pre-flight checks
         sel = self.selective_blocking
         success, err_msg = self.hardware_manager.run_preflight_checks(
-            block_multi_monitor=False, # We don't abort, we blackout below
+            block_multi_monitor=sel.get('multi_monitor', True),
             detect_vm_rdp=sel.get('vm_rdp', True)
         )
         if not success:
