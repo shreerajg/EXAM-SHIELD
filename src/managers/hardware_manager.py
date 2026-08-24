@@ -56,7 +56,7 @@ class HardwareManager:
             'hyper-v'
         ]
         
-        # Check System BIOS version & Video BIOS via registry
+        # 1. Check System BIOS version & Video BIOS via registry
         import winreg
         try:
             key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System")
@@ -71,8 +71,38 @@ class HardwareManager:
                     return True
         except Exception:
             pass
+
+        # 2. Check for known VM drivers/services
+        try:
+            vm_drivers = ['vboxguest.sys', 'vboxmouse.sys', 'vmtoolsd.exe', 'vmmouse.sys', 'vm3dgl.dll']
+            sys32 = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32')
+            drivers_path = os.path.join(sys32, 'drivers')
+            for d in vm_drivers:
+                if os.path.exists(os.path.join(drivers_path, d)) or os.path.exists(os.path.join(sys32, d)):
+                    self.log.warning("HARDWARE", f"VM detected via drivers: {d}")
+                    return True
+        except Exception:
+            pass
+
+        # 3. Check MAC Address OUIs
+        try:
+            import uuid
+            mac = uuid.getnode()
+            mac_hex = f'{mac:012x}'.lower()
+            vm_mac_prefixes = [
+                '080027', # VirtualBox
+                '000569', '000c29', '001c14', '005056', # VMware
+                '00155d', # Hyper-V
+                '525400', # QEMU/KVM
+            ]
+            for prefix in vm_mac_prefixes:
+                if mac_hex.startswith(prefix):
+                    self.log.warning("HARDWARE", f"VM detected via MAC OUI: {prefix}")
+                    return True
+        except Exception:
+            pass
         
-        # Fallback to WMI if available (slow but accurate)
+        # 4. Fallback to WMI if available (slow but accurate)
         try:
             output = subprocess.check_output(
                 ["wmic", "computersystem", "get", "model"],
