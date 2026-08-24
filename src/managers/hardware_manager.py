@@ -129,51 +129,24 @@ class HardwareManager:
 
         return False
         
-    def blackout_secondary_monitors(self, tk_root):
-        """Spawns black fullscreen windows on all secondary monitors."""
-        self.clear_blackouts()
+    def disable_secondary_monitors(self):
+        """Uses DisplaySwitch.exe to set the display to internal (primary) only."""
         if not self.has_multiple_monitors():
             return
-            
+        
         try:
-            import ctypes
-            import ctypes.wintypes
-            user32 = ctypes.windll.user32
-            
-            monitors = []
-            MonitorEnumProc = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.POINTER(ctypes.wintypes.RECT), ctypes.c_double)
-            
-            def callback(hMonitor, hdcMonitor, lprcMonitor, dwData):
-                r = lprcMonitor.contents
-                monitors.append((r.left, r.top, r.right - r.left, r.bottom - r.top))
-                return 1
-                
-            user32.EnumDisplayMonitors(None, None, MonitorEnumProc(callback), 0)
-            
-            import tkinter as tk
-            for (x, y, w, h) in monitors:
-                # Primary monitor is typically at (0, 0)
-                if x == 0 and y == 0:
-                    continue
-                    
-                top = tk.Toplevel(tk_root)
-                top.geometry(f"{w}x{h}+{x}+{y}")
-                top.overrideredirect(True)
-                top.configure(bg="black")
-                top.attributes("-topmost", True)
-                self.blackout_windows.append(top)
-                
-            self.log.info("HARDWARE", f"Blacked out {len(self.blackout_windows)} secondary monitors.")
+            subprocess.run(["DisplaySwitch.exe", "/internal"], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            self.log.info("HARDWARE", "Disabled secondary monitors via DisplaySwitch.exe.")
         except Exception as e:
-            self.log.error("HARDWARE", f"Failed to blackout monitors: {e}")
-            
-    def clear_blackouts(self):
-        for w in self.blackout_windows:
-            try:
-                w.destroy()
-            except Exception:
-                pass
-        self.blackout_windows.clear()
+            self.log.error("HARDWARE", f"Failed to disable monitors: {e}")
+
+    def restore_secondary_monitors(self):
+        """Uses DisplaySwitch.exe to extend the display to all monitors."""
+        try:
+            subprocess.run(["DisplaySwitch.exe", "/extend"], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            self.log.info("HARDWARE", "Restored secondary monitors via DisplaySwitch.exe.")
+        except Exception as e:
+            self.log.error("HARDWARE", f"Failed to restore monitors: {e}")
 
     def run_preflight_checks(self, block_multi_monitor=False, detect_vm_rdp=True) -> tuple[bool, str]:
         """
