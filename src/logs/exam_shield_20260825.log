@@ -1,1 +1,3 @@
 2026-08-25 23:00:31 | ERROR    | [NET_BLOCK] Start failed: [WinError 2] The system cannot find the file specified
+2026-08-25 23:01:16 | INFO     | [NET_FW] Firewall IPv4 rule 'ExamShield_BlockOutbound' removed
+2026-08-25 23:01:16 | INFO     | [NET_FW] Firewall IPv4 rule 'ExamShield_BlockOutbound' added
