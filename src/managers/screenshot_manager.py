@@ -89,8 +89,8 @@ class ScreenshotManager:
             img.save(path, "PNG", optimize=True)
             with self._lock:
                 self.count += 1
-            # ── Layer 4: Append entry to session manifest ─────────────────
-            self._append_manifest(filename, path, reason)
+                # ── Layer 4: Append entry to session manifest ─────────────────
+                self._append_manifest(filename, path, reason)
         except Exception as e:
             print(f"[Screenshot] Capture failed: {e}")
 
