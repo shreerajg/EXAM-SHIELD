@@ -41,7 +41,7 @@ class DNSProxyHandler(socketserver.BaseRequestHandler):
                     
             if allowed:
                 # Forward query to public DNS
-                proxy_req = request.send('8.8.8.8', 53)
+                proxy_req = request.send('8.8.8.8', 53, timeout=3)
                 reply = dnslib.DNSRecord.parse(proxy_req)
                 
                 # Punch hole in firewall dynamically
@@ -60,7 +60,8 @@ class DNSProxyHandler(socketserver.BaseRequestHandler):
                 reply.add_answer(*dnslib.RR.fromZone(f"{qname} 60 A 127.0.0.1"))
                 sock.sendto(reply.pack(), self.client_address)
         except Exception as e:
-            pass
+            if hasattr(self, 'server') and hasattr(self.server, 'network_manager'):
+                self.server.network_manager.log.error("DNS_PROXY", f"Error handling DNS request: {e}")
 
 class DNSProxyServer(socketserver.UDPServer):
     def __init__(self, server_address, RequestHandlerClass, network_manager):
@@ -82,6 +83,7 @@ class NetworkManager:
         self.allowed_dynamic_ips = set()
         self._dns_server = None
         self._dns_thread = None
+        self._fw_lock = threading.Lock()
 
     @staticmethod
     def _hosts_path():
@@ -279,10 +281,11 @@ class NetworkManager:
 
     def _add_dynamic_firewall_rule(self, ips):
         new_ips = []
-        for ip in ips:
-            if ip not in self.allowed_dynamic_ips:
-                self.allowed_dynamic_ips.add(ip)
-                new_ips.append(ip)
+        with self._fw_lock:
+            for ip in ips:
+                if ip not in self.allowed_dynamic_ips:
+                    self.allowed_dynamic_ips.add(ip)
+                    new_ips.append(ip)
         if new_ips:
             threading.Thread(target=self._add_firewall_rules, daemon=True).start()
 
@@ -293,17 +296,19 @@ class NetworkManager:
         """
         if platform.system().lower() != 'windows':
             return
-        try:
-            # Remove any stale rule first
-            self._remove_firewall_rules()
             
-            allowed_ips = set(self.allowed_dynamic_ips)
-            allowed_sites = getattr(Config, 'ALLOWED_WEBSITES', [])
-            for site in allowed_sites:
-                try:
-                    allowed_ips.add(socket.gethostbyname(site))
-                except Exception:
-                    pass
+        with self._fw_lock:
+            try:
+                # Remove any stale rule first
+                self._remove_firewall_rules_internal()
+                
+                allowed_ips = set(self.allowed_dynamic_ips)
+                allowed_sites = getattr(Config, 'ALLOWED_WEBSITES', [])
+                for site in allowed_sites:
+                    try:
+                        allowed_ips.add(socket.gethostbyname(site))
+                    except Exception:
+                        pass
             
             networks = [ipaddress.IPv4Network('0.0.0.0/0')]
             exclude_cidrs = [ipaddress.IPv4Network('127.0.0.0/8')]
@@ -338,11 +343,16 @@ class NetworkManager:
             self.log.info("NET_FW", f"Firewall IPv4 rule '{self._FW_RULE_NAME}' added")
         except Exception as e:
             self.log.error("NET_FW", f"Firewall IPv4 rule add failed: {e}")
-
+            
     def _remove_firewall_rules(self):
-        """Remove the ExamShield IPv4 outbound block rule."""
+        """Thread-safe wrapper to remove the ExamShield IPv4 outbound block rule."""
         if platform.system().lower() != 'windows':
             return
+        with self._fw_lock:
+            self._remove_firewall_rules_internal()
+
+    def _remove_firewall_rules_internal(self):
+        """Internal method to remove the IPv4 rule (assumes lock is acquired)."""
         try:
             subprocess.run(
                 ['netsh', 'advfirewall', 'firewall', 'delete', 'rule',
