@@ -359,6 +359,38 @@ class ReportManager:
             c.setFont("Helvetica-Bold", 10)
             c.drawString(60, y, f"Total Blocked Events: {total_breaches}"); y -= 20
             
+            # Event Log
+            if blocked_events:
+                y -= 10
+                c.setFont("Helvetica-Bold", 12)
+                c.setFillColor(HexColor("#000000"))
+                c.drawString(50, y, "Blocked Event Log (Sample)"); y -= 15
+                c.setFont("Helvetica", 9)
+                c.setFillColor(HexColor("#333333"))
+                
+                # Show up to 100 events to prevent huge PDFs
+                for action, details, ts_str in blocked_events[:100]:
+                    if y < 50:
+                        c.showPage()
+                        y = height - 50
+                        c.setFont("Helvetica", 9)
+                        c.setFillColor(HexColor("#333333"))
+                    
+                    # Truncate details to fit on a single line
+                    clean_details = (details[:80] + '...') if details and len(details) > 80 else (details or '')
+                    log_line = f"[{ts_str}] {action} - {clean_details}"
+                    c.drawString(60, y, log_line)
+                    y -= 12
+                    
+                if len(blocked_events) > 100:
+                    if y < 50:
+                        c.showPage()
+                        y = height - 50
+                        c.setFont("Helvetica", 9)
+                    c.setFillColor(HexColor("#ff4757"))
+                    c.drawString(60, y, f"... and {len(blocked_events) - 100} more events omitted.")
+                    y -= 12
+
             c.save()
         except Exception as e:
             print(f"[Report] PDF write failed: {e}")
