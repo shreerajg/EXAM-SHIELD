@@ -478,10 +478,16 @@ class AdminPanel:
                     txt_version = latest.replace('.html', '.txt')
                     if os.path.exists(txt_version):
                         src = txt_version
+                    else:
+                        self._toast("Text report not found for this session.", C['error'])
+                        return
                 elif path.endswith('.pdf'):
                     pdf_version = latest.replace('.html', '.pdf')
                     if os.path.exists(pdf_version):
                         src = pdf_version
+                    else:
+                        self._toast("PDF report not found (was reportlab installed?).", C['error'])
+                        return
                 
                 shutil.copy2(src, path)
                 self._toast(f"💾 Report exported to {os.path.basename(path)}", C['success'])
