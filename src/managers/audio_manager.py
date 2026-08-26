@@ -12,10 +12,12 @@ try:
 except ImportError:
     AUDIO_AVAILABLE = False
 
+from src.logger import ExamShieldLogger
+
 class AudioManager:
     def __init__(self, db_manager):
         self.db = db_manager
-        self.log = db_manager.logger
+        self.log = ExamShieldLogger(db_manager)
         self.is_active = False
         self._thread = None
         self._stop_event = threading.Event()
