@@ -346,8 +346,8 @@ class NetworkManager:
                     capture_output=True, timeout=15
                 )
                 self.log.info("NET_FW", f"Firewall IPv4 rule '{self._FW_RULE_NAME}' added")
-        except Exception as e:
-            self.log.error("NET_FW", f"Firewall IPv4 rule add failed: {e}")
+            except Exception as e:
+                self.log.error("NET_FW", f"Firewall IPv4 rule add failed: {e}")
             
     def _remove_firewall_rules(self):
         """Thread-safe wrapper to remove the ExamShield IPv4 outbound block rule."""
