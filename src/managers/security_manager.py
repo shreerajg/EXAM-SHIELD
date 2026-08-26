@@ -404,14 +404,13 @@ class SecurityManager:
         self._proc_thread = None
 
     def _process_monitor_loop(self):
-        targets  = Config.SUSPICIOUS_PROCESSES
         interval = Config.PROCESS_MONITOR_INTERVAL
         while self.is_exam_mode and not self._proc_stop.is_set():
             try:
                 for proc in psutil.process_iter(['pid', 'name']):
                     try:
                         name = proc.info['name'].lower()
-                        if name in targets:
+                        if name in Config.SUSPICIOUS_PROCESSES:
                             self.breach_counts['processes'] += 1
                             self.log.security("SUSPICIOUS_PROCESS",
                                               f"Terminated: {name}", blocked=True)
