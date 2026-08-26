@@ -110,7 +110,15 @@ class SecurityManager:
             raise RuntimeError(err_msg)
 
         if sel.get('multi_monitor', True):
-            self.hardware_manager.disable_secondary_monitors()
+            if self.hardware_manager.has_multiple_monitors():
+                if self.admin_panel and hasattr(self.admin_panel, 'window'):
+                    import tkinter.messagebox as mb
+                    mb.showwarning(
+                        "Multiple Monitors Detected",
+                        "Multiple monitors were detected.\nExamShield will now attempt to automatically disable secondary displays.",
+                        parent=self.admin_panel.window
+                    )
+                self.hardware_manager.disable_secondary_monitors()
 
         # Store session metadata for the report
         self._session_profile   = profile_name
