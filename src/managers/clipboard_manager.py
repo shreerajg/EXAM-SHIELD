@@ -1,6 +1,7 @@
 import ctypes
 import threading
 import time
+from src.logger import ExamShieldLogger
 
 class ClipboardManager:
     """
@@ -9,7 +10,7 @@ class ClipboardManager:
     """
     def __init__(self, db_manager):
         self.db = db_manager
-        self.log = db_manager.logger
+        self.log = ExamShieldLogger(db_manager)
         self.is_active = False
         self._thread = None
         self._security_manager = None   # set externally if breach counting needed
