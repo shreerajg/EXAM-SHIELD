@@ -198,6 +198,7 @@ class AdminPanel:
         nav_items = [
             ('dashboard', '⚡', 'Dashboard'),
             ('monitor',   '📊', 'Live Monitor'),
+            ('dynamic_rules', '🔄', 'Dynamic Rules'),
             ('profiles',  '🏷️',  'Profiles'),
             ('settings',  '⚙️',  'Settings'),
             ('logs',      '📋', 'Logs'),
@@ -237,6 +238,7 @@ class AdminPanel:
         self._pages = {}
         self._pages['dashboard'] = self._build_dashboard()
         self._pages['monitor']   = self._build_monitor()
+        self._pages['dynamic_rules'] = self._build_dynamic_rules()
         self._pages['profiles']  = self._build_profiles()
         self._pages['settings']  = self._build_settings()
         self._pages['logs']      = self._build_logs()
@@ -1118,6 +1120,163 @@ class AdminPanel:
         self._logs_text.tag_config('match',   background='#00d4ff22',
                                                foreground=C['text_bright'])
         return pg
+
+    # ── Page: Dynamic Rules ──────────────────────────────────────
+    def _build_dynamic_rules(self):
+        pg = tk.Frame(self._content, bg=C['bg'])
+        canvas = tk.Canvas(pg, bg=C['bg'], highlightthickness=0)
+        vsb = ttk.Scrollbar(pg, orient='vertical', command=canvas.yview)
+        inner = tk.Frame(canvas, bg=C['bg'])
+        inner.bind('<Configure>',
+                   lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.create_window((0, 0), window=inner, anchor='nw')
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.pack(side='left', fill='both', expand=True)
+        vsb.pack(side='right', fill='y')
+
+        section_header(inner, "Live Updates During Exam", C['danger'])
+        tk.Label(inner, text="Changes made here are applied immediately to the active exam session.",
+                 font=('Segoe UI', 9), bg=C['bg'], fg=C['text_dim']).pack(anchor=tk.W, padx=16, pady=(0,10))
+
+        # ── Suspicious Processes
+        f_proc = tk.LabelFrame(inner, text="🔍  Suspicious Processes",
+                           bg=C['bg'], fg=C['primary'],
+                           font=('Segoe UI', 10, 'bold'), padx=10, pady=10)
+        f_proc.pack(fill=tk.X, padx=16, pady=10)
+        
+        row_proc = tk.Frame(f_proc, bg=C['bg'])
+        row_proc.pack(fill=tk.X, pady=(0, 6))
+        self._dyn_proc_lb = tk.Listbox(row_proc, height=6, bg=C['input_bg'], fg=C['text'],
+                                   selectbackground=C['primary_dark'], font=('Consolas', 10),
+                                   relief=tk.FLAT, highlightthickness=1, highlightcolor=C['border'])
+        self._dyn_proc_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+        
+        self._dyn_proc_var = tk.StringVar()
+        proc_entry = dark_entry(f_proc, self._dyn_proc_var)
+        proc_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+
+        def add_proc():
+            p = self._dyn_proc_var.get().strip().lower()
+            if p and p not in Config.SUSPICIOUS_PROCESSES:
+                Config.SUSPICIOUS_PROCESSES.append(p)
+                self._dyn_proc_var.set('')
+                self._load_dyn_proc()
+                self._toast(f"Added process: {p}", C['success'])
+        def rm_proc():
+            sel = self._dyn_proc_lb.curselection()
+            if sel:
+                p = self._dyn_proc_lb.get(sel[0])
+                if p in Config.SUSPICIOUS_PROCESSES:
+                    Config.SUSPICIOUS_PROCESSES.remove(p)
+                    self._load_dyn_proc()
+                    self._toast(f"Removed process: {p}", C['warning'])
+        
+        btns_proc = tk.Frame(row_proc, bg=C['bg'])
+        btns_proc.pack(side=tk.RIGHT, fill=tk.Y)
+        styled_btn(btns_proc, "Add", add_proc, bg=C['surface']).pack(fill=tk.X, pady=2)
+        styled_btn(btns_proc, "Remove", rm_proc, bg=C['surface']).pack(fill=tk.X, pady=2)
+
+        # ── Blocked Keys
+        f_keys = tk.LabelFrame(inner, text="⌨  Blocked Keys",
+                           bg=C['bg'], fg=C['primary'],
+                           font=('Segoe UI', 10, 'bold'), padx=10, pady=10)
+        f_keys.pack(fill=tk.X, padx=16, pady=10)
+        
+        row_keys = tk.Frame(f_keys, bg=C['bg'])
+        row_keys.pack(fill=tk.X, pady=(0, 6))
+        self._dyn_keys_lb = tk.Listbox(row_keys, height=6, bg=C['input_bg'], fg=C['text'],
+                                   selectbackground=C['primary_dark'], font=('Consolas', 10),
+                                   relief=tk.FLAT, highlightthickness=1, highlightcolor=C['border'])
+        self._dyn_keys_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+        
+        self._dyn_key_var = tk.StringVar()
+        key_entry = dark_entry(f_keys, self._dyn_key_var)
+        key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+
+        def add_key():
+            k = self._dyn_key_var.get().strip().lower()
+            if k and k not in self.sec.blocked_keys:
+                self.sec.add_blocked_key(k)
+                self._dyn_key_var.set('')
+                self._load_dyn_keys()
+                self._toast(f"Added key: {k}", C['success'])
+        def rm_key():
+            sel = self._dyn_keys_lb.curselection()
+            if sel:
+                k = self._dyn_keys_lb.get(sel[0])
+                if k in self.sec.blocked_keys:
+                    self.sec.remove_blocked_key(k)
+                    self._load_dyn_keys()
+                    self._toast(f"Removed key: {k}", C['warning'])
+
+        btns_keys = tk.Frame(row_keys, bg=C['bg'])
+        btns_keys.pack(side=tk.RIGHT, fill=tk.Y)
+        styled_btn(btns_keys, "Add", add_key, bg=C['surface']).pack(fill=tk.X, pady=2)
+        styled_btn(btns_keys, "Remove", rm_key, bg=C['surface']).pack(fill=tk.X, pady=2)
+
+        # ── Allowed Websites
+        f_web = tk.LabelFrame(inner, text="🌐  Allowed Websites",
+                           bg=C['bg'], fg=C['primary'],
+                           font=('Segoe UI', 10, 'bold'), padx=10, pady=10)
+        f_web.pack(fill=tk.X, padx=16, pady=10)
+        
+        row_web = tk.Frame(f_web, bg=C['bg'])
+        row_web.pack(fill=tk.X, pady=(0, 6))
+        self._dyn_web_lb = tk.Listbox(row_web, height=6, bg=C['input_bg'], fg=C['text'],
+                                   selectbackground=C['primary_dark'], font=('Consolas', 10),
+                                   relief=tk.FLAT, highlightthickness=1, highlightcolor=C['border'])
+        self._dyn_web_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+        
+        self._dyn_web_var = tk.StringVar()
+        web_entry = dark_entry(f_web, self._dyn_web_var)
+        web_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+
+        def add_web():
+            w = self._dyn_web_var.get().strip().lower()
+            if w:
+                if not hasattr(Config, 'ALLOWED_WEBSITES'):
+                    Config.ALLOWED_WEBSITES = []
+                if w not in Config.ALLOWED_WEBSITES:
+                    Config.ALLOWED_WEBSITES.append(w)
+                    self._dyn_web_var.set('')
+                    self._load_dyn_web()
+                    if hasattr(self.sec.network_manager, 'refresh_firewall_rules'):
+                        self.sec.network_manager.refresh_firewall_rules()
+                    self._toast(f"Allowed website: {w}", C['success'])
+        def rm_web():
+            sel = self._dyn_web_lb.curselection()
+            if sel:
+                w = self._dyn_web_lb.get(sel[0])
+                if hasattr(Config, 'ALLOWED_WEBSITES') and w in Config.ALLOWED_WEBSITES:
+                    Config.ALLOWED_WEBSITES.remove(w)
+                    self._load_dyn_web()
+                    self._toast(f"Removed allowed website: {w}", C['warning'])
+
+        btns_web = tk.Frame(row_web, bg=C['bg'])
+        btns_web.pack(side=tk.RIGHT, fill=tk.Y)
+        styled_btn(btns_web, "Add", add_web, bg=C['surface']).pack(fill=tk.X, pady=2)
+        styled_btn(btns_web, "Remove", rm_web, bg=C['surface']).pack(fill=tk.X, pady=2)
+
+        self._load_dyn_proc()
+        self._load_dyn_keys()
+        self._load_dyn_web()
+        return pg
+
+    def _load_dyn_proc(self):
+        self._dyn_proc_lb.delete(0, tk.END)
+        for p in sorted(Config.SUSPICIOUS_PROCESSES):
+            self._dyn_proc_lb.insert(tk.END, p)
+            
+    def _load_dyn_keys(self):
+        self._dyn_keys_lb.delete(0, tk.END)
+        for k in sorted(self.sec.blocked_keys):
+            self._dyn_keys_lb.insert(tk.END, k)
+            
+    def _load_dyn_web(self):
+        self._dyn_web_lb.delete(0, tk.END)
+        sites = getattr(Config, 'ALLOWED_WEBSITES', [])
+        for w in sorted(sites):
+            self._dyn_web_lb.insert(tk.END, w)
 
     # ── Lockdown Dialog ──────────────────────────────────────────
     def _show_lockdown_dialog(self):
