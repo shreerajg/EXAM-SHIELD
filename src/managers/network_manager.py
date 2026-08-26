@@ -289,6 +289,11 @@ class NetworkManager:
         if new_ips:
             threading.Thread(target=self._add_firewall_rules, daemon=True).start()
 
+    def refresh_firewall_rules(self):
+        """Re-evaluate ALLOWED_WEBSITES and update the firewall rules if blocked."""
+        if self.is_blocked:
+            threading.Thread(target=self._add_firewall_rules, daemon=True).start()
+
     def _add_firewall_rules(self):
         """
         Block all outbound non-loopback IPv4 traffic via Windows Firewall.
