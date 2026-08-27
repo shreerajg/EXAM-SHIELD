@@ -12,6 +12,12 @@ try:
 except ImportError:
     AUDIO_AVAILABLE = False
 
+try:
+    import speech_recognition as sr
+    SPEECH_AVAILABLE = True
+except ImportError:
+    SPEECH_AVAILABLE = False
+
 from src.logger import ExamShieldLogger
 
 class AudioManager:
@@ -28,8 +34,8 @@ class AudioManager:
         self.security_manager = sm
 
     def start(self):
-        if not AUDIO_AVAILABLE:
-            self.log.error("AUDIO", "Dependencies missing (sounddevice/numpy). Audio monitoring disabled.")
+        if not AUDIO_AVAILABLE and not SPEECH_AVAILABLE:
+            self.log.error("AUDIO", "Dependencies missing (sounddevice/numpy and speech_recognition). Audio monitoring disabled.")
             return
             
         if self.is_active: return
@@ -48,6 +54,60 @@ class AudioManager:
         self.log.info("AUDIO", "Audio monitoring stopped")
 
     def _monitor_loop(self):
+        try:
+            if getattr(Config, 'AUDIO_SPEECH_RECOGNITION', False) and SPEECH_AVAILABLE:
+                self._speech_monitor_loop()
+            elif AUDIO_AVAILABLE:
+                self._noise_monitor_loop()
+            else:
+                self.log.error("AUDIO", "No audio modules available to run.")
+        except Exception as e:
+            self.log.error("AUDIO", f"Fatal error in audio monitor: {e}")
+        finally:
+            self.is_active = False
+
+    def _speech_monitor_loop(self):
+        try:
+            recognizer = sr.Recognizer()
+            microphone = sr.Microphone()
+            
+            # Adjust for ambient noise once
+            with microphone as source:
+                recognizer.adjust_for_ambient_noise(source)
+                
+            error_count = 0
+            while self.is_active and not self._stop_event.is_set():
+                try:
+                    with microphone as source:
+                        # Listen for a short phrase
+                        audio = recognizer.listen(source, timeout=Config.AUDIO_MONITOR_INTERVAL_SEC, phrase_time_limit=5)
+                    
+                    # Use offline sphinx
+                    try:
+                        text = recognizer.recognize_sphinx(audio, language=getattr(Config, 'AUDIO_SPEECH_LANGUAGE', "en-US"))
+                        if text.strip():
+                            self._trigger_speech_violation(text.strip())
+                    except sr.UnknownValueError:
+                        # Speech was unintelligible or not speech
+                        pass
+                    except sr.RequestError as e:
+                        self.log.error("AUDIO", f"Sphinx error: {e}")
+                        
+                    error_count = 0
+                except sr.WaitTimeoutError:
+                    # No speech detected in the timeout period, normal
+                    pass
+                except Exception as loop_e:
+                    error_count += 1
+                    self.log.error("AUDIO", f"Unexpected error in speech loop: {loop_e}")
+                    if error_count > 3:
+                        self.log.error("AUDIO", "Too many audio failures. Stopping speech monitor.")
+                        break
+                    self._stop_event.wait(Config.AUDIO_MONITOR_INTERVAL_SEC)
+        except Exception as e:
+            self.log.error("AUDIO", f"Fatal error initializing speech monitor: {e}")
+
+    def _noise_monitor_loop(self):
         try:
             samplerate = 44100
             duration = Config.AUDIO_MONITOR_INTERVAL_SEC
@@ -103,8 +163,23 @@ class AudioManager:
                     
         except Exception as e:
             self.log.error("AUDIO", f"Fatal error in audio monitor: {e}")
-        finally:
-            self.is_active = False
+
+    def _trigger_speech_violation(self, text):
+        msg = f"Speech detected: '{text}'"
+        self.log.security("AUDIO_VIOLATION", msg, blocked=True)
+        if self.security_manager:
+            if 'audio' not in self.security_manager.breach_counts:
+                self.security_manager.breach_counts['audio'] = 0
+            self.security_manager.breach_counts['audio'] += 1
+            self.security_manager.screenshot_manager.capture_violation(reason="audio_speech")
+            
+            panel = self.security_manager.admin_panel
+            if panel and hasattr(panel, 'window'):
+                try:
+                    panel.window.after(0, panel.update_breach_counter)
+                    panel.window.after(0, lambda m=msg: panel._toast(f"🎤  {m}", '#ff4757') if hasattr(panel, '_toast') else None)
+                except Exception:
+                    pass
 
     def _trigger_violation(self, level):
         msg = f"High ambient noise detected (Level: {level:.1f})"
