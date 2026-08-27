@@ -4,7 +4,7 @@ Sidebar-based dark control centre.
 """
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, simpledialog, filedialog
-import threading, time, json, datetime, hashlib, keyboard
+import threading, time, json, datetime, hashlib, keyboard, sys
 from typing import Optional
 from pynput import mouse as pynput_mouse
 from src.config import Config
