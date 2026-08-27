@@ -21,6 +21,7 @@ from src.managers.hardware_manager import HardwareManager
 from src.managers.clipboard_manager import ClipboardManager
 from src.managers.webcam_manager import WebcamManager
 from src.managers.audio_manager import AudioManager
+from src.managers.bluetooth_manager import BluetoothManager
 from src.managers.idle_guard import IdleGuard   # Layer 6
 from src.logger import ExamShieldLogger
 
@@ -46,9 +47,11 @@ class SecurityManager:
         self.clipboard_manager  = ClipboardManager(db_manager)
         self.webcam_manager     = WebcamManager(db_manager)
         self.audio_manager      = AudioManager(db_manager)
+        self.bluetooth_manager  = BluetoothManager(db_manager)
         
         self.webcam_manager.set_security_manager(self)
         self.audio_manager.set_security_manager(self)
+        self.bluetooth_manager.set_security_manager(self)
 
         # Layer 6: Idle Guard
         self.idle_guard = IdleGuard(
@@ -66,7 +69,7 @@ class SecurityManager:
         self.breach_counts: dict[str, int] = {
             'keyboard': 0, 'network': 0,
             'processes': 0, 'usb': 0, 'windows': 0,
-            'webcam': 0, 'audio': 0, 'idle': 0,  # Layer 6
+            'webcam': 0, 'audio': 0, 'bluetooth': 0, 'idle': 0,  # Layer 6
         }
 
         # Active session metadata
@@ -161,6 +164,8 @@ class SecurityManager:
             self.webcam_manager.start()
         if sel.get('audio', True):
             self.audio_manager.start()
+        if sel.get('bluetooth', True):
+            self.bluetooth_manager.start()
         # Layer 6: Start idle guard (always active during exam)
         self.idle_guard.start()
 
@@ -201,6 +206,7 @@ class SecurityManager:
         self.clipboard_manager.stop()
         self.webcam_manager.stop()
         self.audio_manager.stop()
+        self.bluetooth_manager.stop()
         self.hardware_manager.restore_secondary_monitors()
         # Layer 6: Stop idle guard
         self.idle_guard.stop()
