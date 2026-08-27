@@ -33,6 +33,9 @@ class Config:
     AUDIO_SPEECH_RECOGNITION = True # Use offline speech recognition
     AUDIO_SPEECH_LANGUAGE = "en-US"
 
+    # ── Bluetooth Monitoring ──────────────────────────────────────
+    BLUETOOTH_MONITOR_INTERVAL_SEC = 5
+
     # ── Login Security ────────────────────────────────────────────
     # Escalating lockout: each failed attempt beyond MAX_ATTEMPTS triggers
     # a longer lockout tier.  Tiers defined in DatabaseManager._LOCKOUT_TIERS.
