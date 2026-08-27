@@ -13,3 +13,4 @@ dnslib==0.9.24
 SpeechRecognition==3.10.1
 pocketsphinx==5.0.3
 PyAudio==0.2.14
+pywebview==5.3
