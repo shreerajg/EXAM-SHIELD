@@ -83,6 +83,7 @@ class AdminPanel:
         self.profile_manager.ensure_defaults()
         self._exam_timer: Optional[ExamTimer] = None
         self._active_profile_name = ""
+        self._browser_proc = None
 
         # Build window
         self.window = tk.Toplevel()
@@ -1442,6 +1443,14 @@ class AdminPanel:
             # H6: pin admin panel on top, block minimize
             self._enforce_topmost()
 
+            if getattr(Config, 'USE_SECURE_BROWSER', False):
+                try:
+                    import subprocess
+                    url = getattr(Config, 'EXAM_URL', 'https://example.com/exam')
+                    self._browser_proc = subprocess.Popen([sys.executable, "-m", "src.ui.secure_browser", url])
+                except Exception as e:
+                    self.log.error("BROWSER", f"Failed to start secure browser: {e}")
+
             # Start floating timer if requested
             if mins > 0:
                 if self._exam_timer:
@@ -1499,6 +1508,14 @@ class AdminPanel:
         if self._exam_timer:
             self._exam_timer.stop()
             self._exam_timer = None
+        
+        # Kill secure browser if running
+        if self._browser_proc:
+            try:
+                self._browser_proc.terminate()
+                self._browser_proc = None
+            except Exception as e:
+                self.log.error("BROWSER", f"Failed to kill browser proc: {e}")
         report_path = self.sec.stop_exam_mode()
         self._start_btn.config(state=tk.NORMAL)
         self._stop_btn.config(state=tk.DISABLED)
