@@ -30,6 +30,8 @@ class Config:
     AUDIO_MONITOR_INTERVAL_SEC = 2
     AUDIO_THRESHOLD = 50.0 # RMS threshold for detecting speech/noise
     AUDIO_SUSTAINED_TOLERANCE = 3 # number of consecutive noisy chunks before alerting
+    AUDIO_SPEECH_RECOGNITION = True # Use offline speech recognition
+    AUDIO_SPEECH_LANGUAGE = "en-US"
 
     # ── Login Security ────────────────────────────────────────────
     # Escalating lockout: each failed attempt beyond MAX_ATTEMPTS triggers

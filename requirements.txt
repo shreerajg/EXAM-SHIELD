@@ -10,3 +10,6 @@ sounddevice==0.4.6
 numpy==1.26.4
 reportlab==4.2.2
 dnslib==0.9.24
+SpeechRecognition==3.10.1
+pocketsphinx==5.0.3
+PyAudio==0.2.14
