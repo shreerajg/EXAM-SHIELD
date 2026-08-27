@@ -110,6 +110,7 @@ class Config:
         'multi_monitor': True,
         'webcam': True,
         'audio': True,
+        'bluetooth': True,
     }
 
     # ── Network Blocking ─────────────────────────────────────────
