@@ -7,8 +7,12 @@ import os
 class Config:
     # ── Application ──────────────────────────────────────────────
     APP_NAME = "Exam Shield"
-    VERSION = "1.2.0"
+    VERSION = "1.3.0"
     BUILD = "stable"
+
+    # ── Secure Browser ───────────────────────────────────────────
+    USE_SECURE_BROWSER = True
+    EXAM_URL = "https://example.com/exam"
 
     # ── Paths ────────────────────────────────────────────────────
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
