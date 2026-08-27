@@ -19,6 +19,7 @@
 - **Animated UI**: Features a sleek, dark-mode animated login screen and an intuitive user interface.
 - **Visual Lockdown**: The app turns into a black screen in case of any bypass attempt.
 - **Clipbord manager**: Prevents copy-pasting by aggressively clearing the system clipboard while the exam is active.
+- **embedded webview**: Runs the exam inside an embedded webview instance.
 
 ## 🛠️ Technology Stack
 
