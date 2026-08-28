@@ -356,20 +356,27 @@ class AdminPanel:
             if k != key:
                 d['btn'].config(bg=C['sidebar'], fg=C['text_dim'])
                 d['frame'].config(bg=C['sidebar'])
-        
-        # Show selected
+                d['icon'].config(bg=C['sidebar'], fg=C['text_dim'])
+                d['icon_bg'].config(bg=C['sidebar'])
+
+        # Show selected page
         self._pages[key].pack(fill=tk.BOTH, expand=True)
-        self._nav_btns[key]['btn'].config(bg=C['sidebar_hover'], fg=C['primary'])
+        # Highlight active nav item
+        d = self._nav_btns[key]
+        d['btn'].config(bg=C['sidebar_active'], fg=C['primary'])
+        d['frame'].config(bg=C['sidebar_active'])
+        d['icon'].config(bg=C['sidebar_active'], fg=C['primary'])
+        d['icon_bg'].config(bg=C['sidebar_active'])
         self._active_page.set(key)
-        
+
         # Animate sliding indicator
         self.window.update_idletasks()
         target_y = self._nav_btns[key]['frame'].winfo_y()
         if target_y <= 0:
-            target_y = 36 + self._nav_btns[key]['idx'] * 46
-            
+            target_y = 50 + self._nav_btns[key]['idx'] * 46
+
         current_y = getattr(self, '_indicator_y', target_y)
-        
+
         def slide():
             if not self.window.winfo_exists(): return
             nonlocal current_y
@@ -382,8 +389,9 @@ class AdminPanel:
                 self._sliding_indicator.place(y=int(current_y))
                 self._indicator_y = current_y
                 self.window.after(16, slide)
-                
+
         slide()
+
 
     # ── Page: Dashboard ──────────────────────────────────────────
     def _build_dashboard(self):
