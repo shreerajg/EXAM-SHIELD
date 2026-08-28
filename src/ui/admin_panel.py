@@ -559,23 +559,7 @@ class AdminPanel:
                    bg=C['surface'], pady=4
                    ).pack(side=tk.LEFT, padx=(8, 0), pady=8)
 
-        self._refresh_session_history()
-        return pg
-elf._stat_card(hist_row, "LAST SESSION",    C['accent'],   is_bar=False)
-        self._hist_lastb     = self._stat_card(hist_row, "LAST BREACHES",   C['warning'],  is_bar=False)
 
-        styled_btn(hist_row, "🔄",
-                   self._refresh_session_history,
-                   bg=C['surface'], pady=4
-                   ).pack(side=tk.LEFT, padx=(8, 0), pady=8)
-
-        styled_btn(hist_row, "📤 Export Latest Report",
-                   self._export_latest_report,
-                   bg=C['surface'], pady=4
-                   ).pack(side=tk.LEFT, padx=(8, 0), pady=8)
-
-        self._refresh_session_history()
-        return pg
 
     def _export_latest_report(self):
         try:
