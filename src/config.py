@@ -223,44 +223,79 @@ class Config:
 
     # ── UI Palette ───────────────────────────────────────────────
     COLORS = {
-        # Backgrounds
-        'bg':           '#0a0a1a',
-        'surface':      '#12122a',
-        'surface_alt':  '#1a1a3a',
-        'card':         '#16163a',
-        'sidebar':      '#0d0d22',
-        'sidebar_hover':'#1e1e42',
+        # ── Backgrounds ──────────────────────────────────────────
+        'bg':              '#07071a',   # deep navy-black base
+        'surface':         '#0f0f26',   # card surface
+        'surface_alt':     '#161635',   # slightly lighter card
+        'surface_hover':   '#1d1d42',   # hover state for surfaces
+        'card':            '#12122e',   # default card bg
+        'card_alt':        '#1a1a3c',   # alternating card
+        'sidebar':         '#0a0a1f',   # sidebar background
+        'sidebar_hover':   '#161638',   # sidebar item hover
+        'sidebar_active':  '#1e1e48',   # sidebar item active bg
+        'header':          '#0d0d28',   # top header bar
 
-        # Accent
-        'primary':      '#00d4ff',
-        'primary_dark': '#0099bb',
-        'primary_glow': '#00d4ff33',
-        'accent':       '#7f5af0',
-        'accent_dark':  '#6040d0',
-        'accent_glow':  '#7f5af033',
+        # ── Glass / Overlay tokens ────────────────────────────────
+        'glass':           '#ffffff08', # frosted glass overlay
+        'glass_border':    '#ffffff14', # glass border
+        'overlay':         '#00000066', # modal overlay
+        'scrim':           '#07071acc', # backdrop scrim
 
-        # Status
-        'success':      '#00e676',
-        'success_dark': '#00b050',
-        'danger':       '#ff4757',
-        'danger_dark':  '#cc2233',
-        'warning':      '#ffab40',
-        'warning_dark': '#e08000',
-        'info':         '#54a0ff',
+        # ── Primary Accent ────────────────────────────────────────
+        'primary':         '#00d4ff',   # cyan
+        'primary_dark':    '#0099bb',   # darker cyan
+        'primary_muted':   '#00d4ff66', # translucent cyan
+        'primary_glow':    '#00d4ff40', # glow aura
+        'primary_glow2':   '#00d4ff18', # subtle glow
+        'primary_bg':      '#00d4ff0d', # tinted bg
 
-        # Text
-        'text':         '#e8e8f0',
-        'text_dim':     '#6a6a9e',
-        'text_bright':  '#ffffff',
+        # ── Secondary Accent ──────────────────────────────────────
+        'accent':          '#7f5af0',   # purple
+        'accent_dark':     '#6040d0',
+        'accent_muted':    '#7f5af066',
+        'accent_glow':     '#7f5af040',
+        'accent_glow2':    '#7f5af018',
 
-        # Borders / misc
-        'border':       '#252550',
-        'border_bright':'#3a3a70',
-        'input_bg':     '#0d0d28',
-        'highlight':    '#00d4ff22',
+        # ── Status Colors ─────────────────────────────────────────
+        'success':         '#00e676',
+        'success_dark':    '#00b050',
+        'success_muted':   '#00e67640',
+        'success_bg':      '#00e6760d',
+        'danger':          '#ff4757',
+        'danger_dark':     '#cc2233',
+        'danger_muted':    '#ff475740',
+        'danger_bg':       '#ff47570d',
+        'warning':         '#ffab40',
+        'warning_dark':    '#e08000',
+        'warning_muted':   '#ffab4040',
+        'warning_bg':      '#ffab400d',
+        'info':            '#54a0ff',
+        'info_dark':       '#2070d0',
+        'info_muted':      '#54a0ff40',
+        'info_bg':         '#54a0ff0d',
 
-        # Sidebar item active indicator
-        'sidebar_active': '#00d4ff',
+        # ── Text ──────────────────────────────────────────────────
+        'text':            '#e2e2f0',
+        'text_dim':        '#5a5a8e',
+        'text_muted':      '#4a4a7a',
+        'text_bright':     '#ffffff',
+        'text_accent':     '#00d4ff',
+
+        # ── Borders ───────────────────────────────────────────────
+        'border':          '#1e1e4a',
+        'border_bright':   '#2e2e66',
+        'border_glow':     '#00d4ff30',
+
+        # ── Inputs ────────────────────────────────────────────────
+        'input_bg':        '#0a0a22',
+        'input_border':    '#252555',
+        'input_focus':     '#00d4ff',
+
+        # ── Sidebar item active indicator ─────────────────────────
+        'sidebar_accent':  '#00d4ff',
+
+        # ── Legacy aliases (keep old keys working) ────────────────
+        'highlight':       '#00d4ff22',
     }
 
     # ── Theme Palettes ───────────────────────────────────────────
