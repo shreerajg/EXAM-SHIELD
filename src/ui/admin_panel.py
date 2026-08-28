@@ -1820,11 +1820,15 @@ class AdminPanel:
         if self.sec.is_exam_mode:
             self._mode_label.config(text='LOCKDOWN: ACTIVE', fg=C['danger'])
             self._mode_dot.config(fg=C['danger'])
+            if hasattr(self, '_mode_sub'):
+                self._mode_sub.config(text='All security modules are active and enforced', fg=C['danger'])
             self._status_dot.config(fg=C['danger'])
             self._status_badge.config(text='LOCKED', fg=C['danger'])
         else:
             self._mode_label.config(text='LOCKDOWN: INACTIVE', fg=C['success'])
             self._mode_dot.config(fg=C['success'])
+            if hasattr(self, '_mode_sub'):
+                self._mode_sub.config(text='All security modules are standby', fg=C['text_dim'])
             self._status_dot.config(fg=C['text_dim'])
             self._status_badge.config(text='STANDBY', fg=C['text_dim'])
 
