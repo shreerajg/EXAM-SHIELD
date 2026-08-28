@@ -558,7 +558,8 @@ class AdminPanel:
                    self._export_latest_report,
                    bg=C['surface'], pady=4
                    ).pack(side=tk.LEFT, padx=(8, 0), pady=8)
-
+        self._refresh_session_history()
+        return pg
 
 
     def _export_latest_report(self):
