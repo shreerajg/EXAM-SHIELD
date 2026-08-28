@@ -604,27 +604,35 @@ class AdminPanel:
             messagebox.showerror('Export Error', str(e), parent=self.window)
 
     def _stat_card(self, parent, label, color, is_bar=True):
-        outer = tk.Frame(parent, bg=color, padx=1, pady=0)
+        # Outer left-accent border
+        outer = tk.Frame(parent, bg=color, padx=2, pady=0)
         outer.pack(side=tk.LEFT, padx=(0, 8), pady=4)
-        f = tk.Frame(outer, bg=C['surface_alt'], padx=14, pady=10)
+        f = tk.Frame(outer, bg=C['surface_alt'], padx=16, pady=14)
         f.pack(fill=tk.BOTH)
-        tk.Label(f, text=label, font=('Segoe UI', 8, 'bold'),
-                 bg=C['surface_alt'], fg=C['text_dim']).pack(anchor=tk.W)
+
+        # Header row: color dot + label
+        hdr = tk.Frame(f, bg=C['surface_alt'])
+        hdr.pack(fill=tk.X)
+        tk.Label(hdr, text='⬤', font=('Segoe UI', 7),
+                 bg=C['surface_alt'], fg=color).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Label(hdr, text=label, font=('Segoe UI', 8, 'bold'),
+                 bg=C['surface_alt'], fg=C['text_dim']).pack(side=tk.LEFT)
+
         if is_bar:
-            val_lbl = tk.Label(f, text="0%", font=('Segoe UI', 18, 'bold'),
+            val_lbl = tk.Label(f, text="0%", font=('Segoe UI', 22, 'bold'),
                                 bg=C['surface_alt'], fg=color)
-            val_lbl.pack(anchor=tk.W)
-            canvas = tk.Canvas(f, bg=C['border'], height=6, width=130,
+            val_lbl.pack(anchor=tk.W, pady=(4, 2))
+            canvas = tk.Canvas(f, bg=C['border'], height=5, width=130,
                                 highlightthickness=0)
-            canvas.pack(anchor=tk.W, pady=(6, 0))
-            bar = canvas.create_rectangle(0, 0, 0, 6, fill=color, outline='')
+            canvas.pack(anchor=tk.W, pady=(2, 0))
+            bar = canvas.create_rectangle(0, 0, 0, 5, fill=color, outline='')
             return {'label': val_lbl, 'canvas': canvas, 'bar': bar,
                     'color': color, 'width': 130}
         else:
             val_lbl = tk.Label(f, text="–",
-                                font=('Segoe UI', 18, 'bold'),
+                                font=('Segoe UI', 22, 'bold'),
                                 bg=C['surface_alt'], fg=color)
-            val_lbl.pack(anchor=tk.W)
+            val_lbl.pack(anchor=tk.W, pady=(4, 0))
             return {'label': val_lbl}
 
     def _update_bar(self, bar_info, pct):
