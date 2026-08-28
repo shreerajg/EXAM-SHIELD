@@ -357,9 +357,15 @@ class ExamShield:
     def _make_field(self, parent, label, default, show=None):
         C = Config.COLORS
         f = tk.Frame(parent, bg=C['card'])
-        f.pack(fill=tk.X, padx=20, pady=4)
-        tk.Label(f, text=label, font=("Segoe UI", 8, "bold"),
-                 bg=C['card'], fg=C['text_dim']).pack(anchor=tk.W, pady=(4, 2))
+        f.pack(fill=tk.X, padx=20, pady=(8, 4))
+
+        # Label row with accent dot
+        lrow = tk.Frame(f, bg=C['card'])
+        lrow.pack(fill=tk.X, pady=(0, 3))
+        tk.Label(lrow, text="▸", font=("Segoe UI", 8),
+                 bg=C['card'], fg=C['primary']).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Label(lrow, text=label, font=("Segoe UI", 8, "bold"),
+                 bg=C['card'], fg=C['text_dim']).pack(side=tk.LEFT)
 
         var = tk.StringVar(value=default)
         entry = tk.Entry(
@@ -369,9 +375,12 @@ class ExamShield:
             relief=tk.FLAT, insertbackground=C['primary'],
             highlightthickness=2,
             highlightcolor=C['primary'],
-            highlightbackground=C['border']
+            highlightbackground=C['input_border']
         )
-        entry.pack(fill=tk.X, ipady=9)
+        entry.pack(fill=tk.X, ipady=10)
+        # Focus glow
+        entry.bind('<FocusIn>',  lambda e: entry.config(highlightbackground=C['primary']))
+        entry.bind('<FocusOut>', lambda e: entry.config(highlightbackground=C['input_border']))
         self._last_field_var = var
         self._last_field_entry = entry
 
@@ -382,14 +391,17 @@ class ExamShield:
             bg=bg, fg=fg,
             font=("Segoe UI", 11, "bold"),
             relief=tk.FLAT, cursor='hand2',
-            pady=10, activebackground=C['primary_dark'],
-            activeforeground='white', bd=0
+            pady=11, activebackground=C['primary_dark'],
+            activeforeground=C['text_bright'], bd=0
         )
-        # Hover bindings
         orig_bg = bg
         hover_bg = self._darken(bg)
-        btn.bind("<Enter>", lambda e: btn.config(bg=hover_bg))
-        btn.bind("<Leave>", lambda e: btn.config(bg=orig_bg))
+        def on_enter(e):
+            btn.config(bg=hover_bg)
+        def on_leave(e):
+            btn.config(bg=orig_bg)
+        btn.bind("<Enter>", on_enter)
+        btn.bind("<Leave>", on_leave)
         return btn
 
     @staticmethod
@@ -406,16 +418,21 @@ class ExamShield:
             return hex_color
 
     def _animate_shield(self):
-        """Pulsate the shield aura."""
+        """Pulsate the triple glow rings around the shield."""
         try:
             import math
             C = Config.COLORS
-            self._pulse_phase += 0.08
-            alpha_val = 0.35 + 0.35 * math.sin(self._pulse_phase)
-            width_val = 1 + int(2 * abs(math.sin(self._pulse_phase)))
-            self._hdr_canvas.itemconfig(self._shield_aura, width=width_val)
-            # Inner aura glow offset
-            glow_r = int(6 * abs(math.sin(self._pulse_phase)))
+            self._pulse_phase += 0.06
+            s = math.sin(self._pulse_phase)
+            # Outer ring: slow breathe
+            w3 = 1 + int(1.5 * abs(math.sin(self._pulse_phase * 0.5)))
+            self._hdr_canvas.itemconfig(self._shield_ring3_ref, width=w3)
+            # Middle ring: medium breathe, slightly offset
+            w2 = 1 + int(2 * abs(math.sin(self._pulse_phase * 0.7 + 0.5)))
+            self._hdr_canvas.itemconfig(self._shield_ring2_ref, width=w2)
+            # Inner ring: primary glow pulse
+            w1 = 2 + int(2 * abs(s))
+            self._hdr_canvas.itemconfig(self._shield_ring1_ref, width=w1)
             self.root.after(Config.ANIM_STEP_MS * 2, self._animate_shield)
         except Exception:
             pass
@@ -426,13 +443,16 @@ class ExamShield:
             for p in self._particles:
                 p['x'] += p['dx']
                 p['y'] += p['dy']
-                # Bounce off edges
-                if p['x'] < 2 or p['x'] > 498:  p['dx'] *= -1
-                if p['y'] < 2 or p['y'] > 198:  p['dy'] *= -1
+                h_max = p.get('h', 200)
+                if p['x'] < 2 or p['x'] > 498: p['dx'] *= -1
+                if p['y'] < 2 or p['y'] > h_max - 2: p['dy'] *= -1
                 r = p['r']
-                self._hdr_canvas.coords(p['id'],
-                    p['x']-r, p['y']-r, p['x']+r, p['y']+r)
-            self.root.after(40, self._animate_particles)
+                self._hdr_canvas.coords(
+                    p['id'],
+                    p['x'] - r, p['y'] - r,
+                    p['x'] + r, p['y'] + r
+                )
+            self.root.after(35, self._animate_particles)
         except Exception:
             pass
 
