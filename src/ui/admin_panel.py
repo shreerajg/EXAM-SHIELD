@@ -16,13 +16,14 @@ C = Config.COLORS
 
 # ── Reusable styled widgets ────────────────────────────────────────
 
-def styled_btn(parent, text, cmd, bg=None, fg=None, width=None, pady=8):
+def styled_btn(parent, text, cmd, bg=None, fg=None, width=None, pady=9):
     bg = bg or C['surface_alt']
     fg = fg or C['text']
     kw = dict(text=text, command=cmd, bg=bg, fg=fg,
               font=('Segoe UI', 10, 'bold'), relief=tk.FLAT,
-              cursor='hand2', pady=pady, bd=0,
-              activeforeground='white', activebackground=C['primary_dark'])
+              cursor='hand2', pady=pady, padx=14, bd=0,
+              activeforeground=C['text_bright'],
+              activebackground=_darken(bg))
     if width:
         kw['width'] = width
     btn = tk.Button(parent, **kw)
@@ -31,11 +32,19 @@ def styled_btn(parent, text, cmd, bg=None, fg=None, width=None, pady=8):
     btn.bind('<Leave>', lambda e: btn.config(bg=bg))
     return btn
 
-def _darken(hex_c):
+def _darken(hex_c, factor=0.72):
     try:
         h = hex_c.lstrip('#')
-        r,g,b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
-        return f'#{int(r*.75):02x}{int(g*.75):02x}{int(b*.75):02x}'
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f'#{int(r*factor):02x}{int(g*factor):02x}{int(b*factor):02x}'
+    except Exception:
+        return hex_c
+
+def _lighten(hex_c, factor=1.25):
+    try:
+        h = hex_c.lstrip('#')
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f'#{min(255,int(r*factor)):02x}{min(255,int(g*factor)):02x}{min(255,int(b*factor)):02x}'
     except Exception:
         return hex_c
 
@@ -44,20 +53,43 @@ def dark_entry(parent, var, show=None):
                  font=('Segoe UI', 11), bg=C['input_bg'], fg=C['text'],
                  relief=tk.FLAT, insertbackground=C['primary'],
                  highlightthickness=2, highlightcolor=C['primary'],
-                 highlightbackground=C['border'])
+                 highlightbackground=C['input_border'])
+    e.bind('<FocusIn>',  lambda ev: e.config(highlightbackground=C['primary']))
+    e.bind('<FocusOut>', lambda ev: e.config(highlightbackground=C['input_border']))
     return e
 
 def section_header(parent, text, icon_color=None):
+    """Premium section header with colored left-bar accent and glow dot."""
     color = icon_color or C['primary']
     f = tk.Frame(parent, bg=C['bg'])
-    f.pack(fill=tk.X, padx=16, pady=(16, 6))
+    f.pack(fill=tk.X, padx=16, pady=(18, 6))
     row = tk.Frame(f, bg=C['bg'])
     row.pack(fill=tk.X)
-    # Left accent bar
-    tk.Frame(row, bg=color, width=3).pack(side=tk.LEFT, fill=tk.Y, pady=2, padx=(0, 8))
-    tk.Label(row, text=text, font=('Segoe UI', 11, 'bold'),
+    # Left accent bar (thick + colored)
+    tk.Frame(row, bg=color, width=4).pack(side=tk.LEFT, fill=tk.Y, pady=1, padx=(0, 10))
+    # Glow dot
+    tk.Label(row, text='⬤', font=('Segoe UI', 7),
+             bg=C['bg'], fg=color).pack(side=tk.LEFT, padx=(0, 6))
+    tk.Label(row, text=text.upper(), font=('Segoe UI', 10, 'bold'),
              bg=C['bg'], fg=color).pack(anchor=tk.W, side=tk.LEFT)
-    tk.Frame(f, bg=C['border'], height=1).pack(fill=tk.X, pady=(4, 0))
+    # Separator line
+    tk.Frame(f, bg=color, height=1).pack(fill=tk.X, pady=(5, 0))
+
+def premium_card(parent, padx=0, pady=0, accent=None):
+    """A flat card frame with optional left accent border."""
+    if accent:
+        outer = tk.Frame(parent, bg=accent, padx=2, pady=0)
+        outer.pack(fill=tk.X, padx=16, pady=(0, 8))
+        inner = tk.Frame(outer, bg=C['card'], padx=padx or 14, pady=pady or 12)
+        inner.pack(fill=tk.BOTH, expand=True)
+        return inner
+    else:
+        f = tk.Frame(parent, bg=C['card'],
+                     highlightthickness=1,
+                     highlightbackground=C['border'],
+                     padx=padx or 14, pady=pady or 12)
+        f.pack(fill=tk.X, padx=16, pady=(0, 8))
+        return f
 
 
 class AdminPanel:
