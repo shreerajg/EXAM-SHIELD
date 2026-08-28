@@ -174,49 +174,73 @@ class AdminPanel:
 
     # ── Main UI (Sidebar + Content) ──────────────────────────────
     def _build_ui(self):
-        # Top header bar
-        hdr = tk.Frame(self.window, bg=C['surface'], height=56)
+        # ── Top header bar (premium, 64px)
+        hdr = tk.Frame(self.window, bg=C['header'], height=64)
         hdr.pack(fill=tk.X)
         hdr.pack_propagate(False)
-        # Left brand
-        brand = tk.Frame(hdr, bg=C['surface'])
-        brand.pack(side=tk.LEFT, padx=18, fill=tk.Y)
-        tk.Label(brand, text="🛡️", font=('Segoe UI', 18),
-                 bg=C['surface'], fg=C['primary']).pack(side=tk.LEFT, padx=(0, 8))
-        tk.Label(brand, text="EXAM SHIELD",
-                 font=('Segoe UI', 13, 'bold'), bg=C['surface'],
-                 fg=C['primary']).pack(side=tk.LEFT)
-        tk.Label(brand, text=" CONTROL CENTRE",
-                 font=('Segoe UI', 10), bg=C['surface'],
-                 fg=C['text_dim']).pack(side=tk.LEFT)
-        # Right: status + clock + user
-        right = tk.Frame(hdr, bg=C['surface'])
-        right.pack(side=tk.RIGHT, padx=18, fill=tk.Y)
+
+        # Left brand area
+        brand = tk.Frame(hdr, bg=C['header'])
+        brand.pack(side=tk.LEFT, padx=20, fill=tk.Y)
+
+        # Shield icon with a subtle glow background pill
+        shield_pill = tk.Frame(brand, bg=C['primary_bg'], padx=8, pady=4)
+        shield_pill.pack(side=tk.LEFT, padx=(0, 12), pady=14)
+        tk.Label(shield_pill, text="🛡", font=('Segoe UI', 16),
+                 bg=C['primary_bg'], fg=C['primary']).pack()
+
+        title_col = tk.Frame(brand, bg=C['header'])
+        title_col.pack(side=tk.LEFT, fill=tk.Y, pady=12)
+        tk.Label(title_col, text="EXAM SHIELD",
+                 font=('Segoe UI', 14, 'bold'), bg=C['header'],
+                 fg=C['primary']).pack(anchor=tk.W)
+        tk.Label(title_col, text="Control Centre  ·  Administrator",
+                 font=('Segoe UI', 8), bg=C['header'],
+                 fg=C['text_dim']).pack(anchor=tk.W)
+
+        # Right: status badge + clock + user avatar
+        right = tk.Frame(hdr, bg=C['header'])
+        right.pack(side=tk.RIGHT, padx=20, fill=tk.Y)
+
+        # User avatar circle (simulated with label)
+        user_pill = tk.Frame(right, bg=C['accent_glow2'], padx=10, pady=4)
+        user_pill.pack(side=tk.RIGHT, padx=(10, 0), pady=18)
+        tk.Label(user_pill, text=f"👤  {self.admin_user}",
+                 font=('Segoe UI', 9, 'bold'),
+                 bg=C['accent_glow2'], fg=C['accent']).pack()
+
         self._clock_label = tk.Label(right, text="",
                                       font=('Consolas', 10),
-                                      bg=C['surface'], fg=C['text_dim'])
+                                      bg=C['header'], fg=C['text_dim'])
         self._clock_label.pack(side=tk.RIGHT, padx=(12, 0))
-        tk.Label(right, text=f"👤  {self.admin_user}",
-                 font=('Segoe UI', 9, 'bold'), bg=C['surface'],
-                 fg=C['text_dim']).pack(side=tk.RIGHT, padx=(12, 0))
-        self._status_badge = tk.Label(right, text="⬤  STANDBY",
-                                       font=('Consolas', 11, 'bold'),
-                                       bg=C['surface'], fg=C['text_dim'])
-        self._status_badge.pack(side=tk.RIGHT)
+
+        # Status badge with live indicator dot
+        badge_frame = tk.Frame(right, bg=C['header'])
+        badge_frame.pack(side=tk.RIGHT, padx=(0, 12))
+        self._status_dot = tk.Label(badge_frame, text="⬤",
+                                     font=('Segoe UI', 10),
+                                     bg=C['header'], fg=C['text_dim'])
+        self._status_dot.pack(side=tk.LEFT, padx=(0, 4))
+        self._status_badge = tk.Label(badge_frame, text="STANDBY",
+                                       font=('Consolas', 10, 'bold'),
+                                       bg=C['header'], fg=C['text_dim'])
+        self._status_badge.pack(side=tk.LEFT)
+
         self._start_clock()
 
-        # Separator
+        # Primary accent separator
         tk.Frame(self.window, bg=C['primary'], height=2).pack(fill=tk.X)
 
         # Body = sidebar + content
         body = tk.Frame(self.window, bg=C['bg'])
         body.pack(fill=tk.BOTH, expand=True)
 
-        # Sidebar
-        sidebar = tk.Frame(body, bg=C['sidebar'], width=180)
+        # ── Sidebar (wider: 204px)
+        sidebar = tk.Frame(body, bg=C['sidebar'], width=204)
         sidebar.pack(side=tk.LEFT, fill=tk.Y)
         sidebar.pack_propagate(False)
-        
+
+        # Sliding active indicator
         self._sliding_indicator = tk.Frame(sidebar, bg=C['primary'], width=4, height=44)
         self._sliding_indicator.place(x=0, y=-100)
         self._indicator_y = 0
@@ -225,59 +249,90 @@ class AdminPanel:
         self._content = tk.Frame(body, bg=C['bg'])
         self._content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Nav items
-        self._nav_frames = {}
+        # ── Nav section label
         self._active_page = tk.StringVar(value='dashboard')
         nav_items = [
-            ('dashboard', '⚡', 'Dashboard'),
-            ('monitor',   '📊', 'Live Monitor'),
-            ('dynamic_rules', '🔄', 'Dynamic Rules'),
-            ('profiles',  '🏷️',  'Profiles'),
-            ('settings',  '⚙️',  'Settings'),
-            ('logs',      '📋', 'Logs'),
+            ('dashboard',    '⚡', 'Dashboard'),
+            ('monitor',      '📊', 'Live Monitor'),
+            ('dynamic_rules','🔄', 'Dynamic Rules'),
+            ('profiles',     '🏷',  'Profiles'),
+            ('settings',     '⚙',  'Settings'),
+            ('logs',         '📋', 'Logs'),
         ]
-        tk.Label(sidebar, text="NAVIGATION", font=('Segoe UI', 8, 'bold'),
-                 bg=C['sidebar'], fg=C['text_dim']).pack(
-            anchor=tk.W, padx=14, pady=(20, 6))
+
+        # Sidebar top brand strip
+        sb_top = tk.Frame(sidebar, bg=C['sidebar'], height=50)
+        sb_top.pack(fill=tk.X)
+        sb_top.pack_propagate(False)
+        tk.Label(sb_top, text="NAVIGATION",
+                 font=('Segoe UI', 7, 'bold'),
+                 bg=C['sidebar'], fg=C['text_muted'],
+                 anchor=tk.W).pack(anchor=tk.W, padx=16, pady=(16, 0))
+
+        # Sidebar divider
+        tk.Frame(sidebar, bg=C['border'], height=1).pack(fill=tk.X, padx=10)
 
         self._nav_btns = {}
+        self._nav_frames_dict = {}
         for idx, (key, icon, label) in enumerate(nav_items):
-            btn_frame = tk.Frame(sidebar, bg=C['sidebar'])
-            btn_frame.pack(fill=tk.X, pady=1)
-            
-            btn = tk.Label(btn_frame, text=f"  {icon}  {label}",
+            btn_frame = tk.Frame(sidebar, bg=C['sidebar'], height=46)
+            btn_frame.pack(fill=tk.X)
+            btn_frame.pack_propagate(False)
+
+            # Icon pill
+            icon_bg = tk.Frame(btn_frame, bg=C['sidebar'], width=32, height=32)
+            icon_bg.pack(side=tk.LEFT, padx=(12, 8), pady=7)
+            icon_bg.pack_propagate(False)
+            icon_lbl = tk.Label(icon_bg, text=icon, font=('Segoe UI', 11),
+                                bg=C['sidebar'], fg=C['text_dim'])
+            icon_lbl.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+            btn = tk.Label(btn_frame, text=label,
                            font=('Segoe UI', 10), bg=C['sidebar'],
                            fg=C['text_dim'], cursor='hand2',
-                           anchor=tk.W, pady=12)
-            btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4,0))
-            
-            btn.bind('<Button-1>', lambda e, k=key: self._nav_to(k))
-            
-            def on_enter(e, b=btn, k=key):
+                           anchor=tk.W)
+            btn.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+            def _click(e, k=key):
+                self._nav_to(k)
+            def on_enter(e, bf=btn_frame, b=btn, il=icon_lbl, k=key):
                 if self._active_page.get() != k:
+                    bf.config(bg=C['sidebar_hover'])
                     b.config(bg=C['sidebar_hover'], fg=C['text'])
-            def on_leave(e, b=btn, k=key):
+                    il.config(bg=C['sidebar_hover'])
+            def on_leave(e, bf=btn_frame, b=btn, il=icon_lbl, k=key):
                 if self._active_page.get() != k:
+                    bf.config(bg=C['sidebar'])
                     b.config(bg=C['sidebar'], fg=C['text_dim'])
-            
-            btn.bind('<Enter>', on_enter)
-            btn.bind('<Leave>', on_leave)
-            btn_frame.bind('<Enter>', on_enter)
-            btn_frame.bind('<Leave>', on_leave)
-            
-            self._nav_btns[key] = {'btn': btn, 'frame': btn_frame, 'idx': idx}
+                    il.config(bg=C['sidebar'])
 
-        # Build all page frames (hidden by default)
+            for widget in (btn_frame, btn, icon_lbl, icon_bg):
+                widget.bind('<Button-1>', _click)
+                widget.bind('<Enter>', on_enter)
+                widget.bind('<Leave>', on_leave)
+
+            self._nav_btns[key] = {
+                'btn': btn, 'frame': btn_frame,
+                'icon': icon_lbl, 'icon_bg': icon_bg, 'idx': idx
+            }
+
+        # Bottom sidebar divider + version
+        tk.Frame(sidebar, bg=C['border'], height=1).pack(fill=tk.X, padx=10, pady=(8, 4))
+        tk.Label(sidebar, text=f"v{Config.VERSION}",
+                 font=('Consolas', 8), bg=C['sidebar'],
+                 fg=C['text_muted']).pack(anchor=tk.W, padx=16, pady=(0, 8))
+
+        # Build all page frames
         self._pages = {}
-        self._pages['dashboard'] = self._build_dashboard()
-        self._pages['monitor']   = self._build_monitor()
-        self._pages['dynamic_rules'] = self._build_dynamic_rules()
-        self._pages['profiles']  = self._build_profiles()
-        self._pages['settings']  = self._build_settings()
-        self._pages['logs']      = self._build_logs()
+        self._pages['dashboard']    = self._build_dashboard()
+        self._pages['monitor']      = self._build_monitor()
+        self._pages['dynamic_rules']= self._build_dynamic_rules()
+        self._pages['profiles']     = self._build_profiles()
+        self._pages['settings']     = self._build_settings()
+        self._pages['logs']         = self._build_logs()
 
-        # Show initial page
         self._nav_to('dashboard')
+
 
     def _start_clock(self):
         """Update the clock label every second."""
