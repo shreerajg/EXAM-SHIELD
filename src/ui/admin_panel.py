@@ -1846,15 +1846,19 @@ class AdminPanel:
                 ('vm_rdp', 'vm_rdp_clear'), ('multi_monitor', 'single_monitor'),
                 ('webcam', 'webcam_active'), ('audio', 'audio_active')]
         for key, syskey in map_:
+            ind = self._ind.get(key)
+            if not ind:
+                continue
             active = info.get(syskey, False)
-            # Extract icon+label from existing text
-            existing = self._ind[key].cget('text')
-            # Label always = last word after first space-separated icon
-            parts = existing.split('  ', 1)
-            suffix = parts[1] if len(parts) > 1 else existing
-            self._ind[key].config(
-                text=f"🟢  {suffix}" if active else f"⬤  {suffix}",
-                fg=C['success'] if active else C['text_dim'])
+            if active:
+                ind['dot'].config(text='● ON',  fg=C['success'])
+                ind['lbl'].config(fg=C['text'])
+                ind['chip'].config(highlightbackground=C['success_muted'])
+            else:
+                ind['dot'].config(text='● OFF', fg=C['text_muted'])
+                ind['lbl'].config(fg=C['text_dim'])
+                ind['chip'].config(highlightbackground=C['border'])
+
 
         # Threat
         if self.sec.is_exam_mode:
