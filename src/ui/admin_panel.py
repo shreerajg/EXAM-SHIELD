@@ -383,138 +383,148 @@ class AdminPanel:
             if abs(target_y - current_y) <= 1:
                 current_y = target_y
                 self._sliding_indicator.place(y=current_y)
-                self._indicator_y = current_y
-            else:
-                current_y += (target_y - current_y) * 0.35
-                self._sliding_indicator.place(y=int(current_y))
-                self._indicator_y = current_y
-                self.window.after(16, slide)
-
-        slide()
-
-
-    # ── Page: Dashboard ──────────────────────────────────────────
+         # ── Page: Dashboard ──────────────────────────────────────────
     def _build_dashboard(self):
         pg = tk.Frame(self._content, bg=C['bg'])
 
-        # System stats row
+        # ── System stats row (4 big stat cards)
         section_header(pg, "System Status", C['info'])
         stats_row = tk.Frame(pg, bg=C['bg'])
-        stats_row.pack(fill=tk.X, padx=16, pady=(0, 8))
+        stats_row.pack(fill=tk.X, padx=16, pady=(0, 4))
 
-        self._cpu_bar = self._stat_card(stats_row, "CPU", C['info'])
-        self._ram_bar = self._stat_card(stats_row, "RAM", C['accent'])
-        self._procs_card = self._stat_card(stats_row, "PROCESSES", C['warning'],
-                                            is_bar=False)
-        self._mode_card = self._stat_card(stats_row, "MODE", C['success'],
-                                           is_bar=False)
+        self._cpu_bar   = self._stat_card(stats_row, "CPU USAGE",   C['info'])
+        self._ram_bar   = self._stat_card(stats_row, "RAM USAGE",   C['accent'])
+        self._procs_card = self._stat_card(stats_row, "PROCESSES",   C['warning'], is_bar=False)
+        self._mode_card  = self._stat_card(stats_row, "MODE",        C['success'],  is_bar=False)
 
-        # Lockdown control
+        # ── Lockdown Control card
         section_header(pg, "Lockdown Control", C['danger'])
-        ctrl = tk.Frame(pg, bg=C['card'], bd=0,
-                        highlightthickness=1,
-                        highlightbackground=C['border'])
-        ctrl.pack(fill=tk.X, padx=16, pady=(0, 8))
+        ctrl_outer = tk.Frame(pg, bg=C['danger'], padx=2, pady=0)
+        ctrl_outer.pack(fill=tk.X, padx=16, pady=(0, 8))
+        ctrl = tk.Frame(ctrl_outer, bg=C['card'])
+        ctrl.pack(fill=tk.BOTH, expand=True)
 
+        # Status header row
         mode_hdr = tk.Frame(ctrl, bg=C['card'])
-        mode_hdr.pack(fill=tk.X, padx=20, pady=(14, 4))
+        mode_hdr.pack(fill=tk.X, padx=18, pady=(14, 6))
         self._mode_dot = tk.Label(mode_hdr, text="⬤",
-                                   font=('Segoe UI', 14),
+                                   font=('Segoe UI', 16),
                                    bg=C['card'], fg=C['success'])
-        self._mode_dot.pack(side=tk.LEFT, padx=(0, 8))
-        self._mode_label = tk.Label(mode_hdr, text="LOCKDOWN: INACTIVE",
-                                     font=('Segoe UI', 15, 'bold'),
+        self._mode_dot.pack(side=tk.LEFT, padx=(0, 10))
+        mode_txt_col = tk.Frame(mode_hdr, bg=C['card'])
+        mode_txt_col.pack(side=tk.LEFT)
+        self._mode_label = tk.Label(mode_txt_col, text="LOCKDOWN: INACTIVE",
+                                     font=('Segoe UI', 14, 'bold'),
                                      bg=C['card'], fg=C['success'])
-        self._mode_label.pack(side=tk.LEFT)
+        self._mode_label.pack(anchor=tk.W)
+        self._mode_sub = tk.Label(mode_txt_col, text="All security modules are standby",
+                                   font=('Segoe UI', 8),
+                                   bg=C['card'], fg=C['text_dim'])
+        self._mode_sub.pack(anchor=tk.W)
 
-        # Module indicators
-        ind_row = tk.Frame(ctrl, bg=C['card'])
-        ind_row.pack(fill=tk.X, padx=20, pady=(4, 12))
+        # Module indicator chips (2-row grid)
+        ind_outer = tk.Frame(ctrl, bg=C['card'])
+        ind_outer.pack(fill=tk.X, padx=18, pady=(2, 10))
         self._ind = {}
-        for key, icon, label in [('keyboard', '⌨', 'Keyboard'),
-                                   ('mouse',    '🖱', 'Mouse'),
-                                   ('network',  '🌐', 'Network'),
-                                   ('windows',  '🪟', 'Windows'),
-                                   ('usb',     '💾', 'USB'),
-                                   ('clipboard', '📋', 'Clip'),
-                                   ('vm_rdp', '🖥', 'VM/RDP'),
-                                   ('multi_monitor', '📺', 'Monitors'),
-                                   ('webcam', '📷', 'Webcam'),
-                                   ('audio', '🎤', 'Audio')]:
-            card = tk.Frame(ind_row, bg=C['surface'],
-                            padx=12, pady=8,
+        modules_def = [
+            ('keyboard',      '⌨',  'Keyboard'),
+            ('mouse',         '🖱', 'Mouse'),
+            ('network',       '🌐', 'Network'),
+            ('windows',       '🪟', 'Windows'),
+            ('usb',           '💾', 'USB'),
+            ('clipboard',     '📋', 'Clipboard'),
+            ('vm_rdp',        '🖥', 'VM/RDP'),
+            ('multi_monitor', '📺', 'Monitors'),
+            ('webcam',        '📷', 'Webcam'),
+            ('audio',         '🎤', 'Audio'),
+        ]
+        for i, (key, icon, label) in enumerate(modules_def):
+            chip = tk.Frame(ind_outer, bg=C['surface'],
                             highlightthickness=1,
-                            highlightbackground=C['border'])
-            card.pack(side=tk.LEFT, padx=(0, 6))
-            lbl = tk.Label(card, text=f"⬤  {icon} {label}",
-                           font=('Segoe UI', 9, 'bold'), bg=C['surface'],
+                            highlightbackground=C['border'],
+                            padx=8, pady=5)
+            chip.grid(row=i // 5, column=i % 5, padx=(0, 5), pady=(0, 4), sticky='ew')
+            ind_outer.columnconfigure(i % 5, weight=1)
+            inner = tk.Frame(chip, bg=C['surface'])
+            inner.pack()
+            tk.Label(inner, text=icon, font=('Segoe UI', 10),
+                     bg=C['surface'], fg=C['text_dim']).pack(side=tk.LEFT, padx=(0, 4))
+            lbl = tk.Label(inner, text=label,
+                           font=('Segoe UI', 8, 'bold'), bg=C['surface'],
                            fg=C['text_dim'])
-            lbl.pack()
-            self._ind[key] = lbl
+            lbl.pack(side=tk.LEFT)
+            dot = tk.Label(chip, text='● OFF',
+                           font=('Segoe UI', 7), bg=C['surface'],
+                           fg=C['text_muted'])
+            dot.pack()
+            self._ind[key] = {'chip': chip, 'lbl': lbl, 'dot': dot}
 
-        # Buttons row
+        # Action buttons row
         btn_row = tk.Frame(ctrl, bg=C['card'])
-        btn_row.pack(fill=tk.X, padx=20, pady=(0, 16))
+        btn_row.pack(fill=tk.X, padx=18, pady=(4, 16))
 
         self._start_btn = styled_btn(btn_row, "🔒  START LOCKDOWN",
                                       self._show_lockdown_dialog,
-                                      bg=C['success'], fg='#0a0a0a')
+                                      bg=C['success'], fg='#030d03', pady=12)
         self._start_btn.pack(side=tk.LEFT, padx=(0, 8))
         self._pulse_button(self._start_btn, C['success'])
 
         self._stop_btn = styled_btn(btn_row, "🔓  END LOCKDOWN",
                                      self._stop_exam,
-                                     bg=C['danger'], fg='white')
+                                     bg=C['danger'], fg='white', pady=12)
         self._stop_btn.pack(side=tk.LEFT, padx=(0, 8))
         self._stop_btn.config(state=tk.DISABLED)
 
         styled_btn(btn_row, "🚨  EMERGENCY STOP",
                    self._emergency_stop,
-                   bg=C['warning'], fg='#0a0a0a').pack(side=tk.LEFT)
+                   bg=C['warning'], fg='#0a0a0a', pady=12).pack(side=tk.LEFT)
 
         styled_btn(btn_row, "🔄 Refresh",
-                   self._refresh_status, bg=C['surface_alt']).pack(side=tk.RIGHT)
+                   self._refresh_status, bg=C['surface_alt'], pady=12).pack(side=tk.RIGHT)
 
-        # ── Breach Counter ────────────────────────────────────────
-        section_header(pg, "Breach Counter (current session)", C['danger'])
+        # ── Breach Counter (color-coded pills)
+        section_header(pg, "Breach Counter — Current Session", C['danger'])
         breach_row = tk.Frame(pg, bg=C['bg'])
-        breach_row.pack(fill=tk.X, padx=16, pady=(0, 8))
+        breach_row.pack(fill=tk.X, padx=16, pady=(0, 6))
         self._breach_cards = {}
-        for key, icon, label in [
-            ('keyboard',  '⌨️', 'Keystrokes\nBlocked'),
-            ('processes', '🔍', 'Processes\nTerminated'),
-            ('network',   '🌐', 'Network\nBlocked'),
-            ('usb',       '💾', 'USB\nEvents'),
-            ('windows',   '🪟', 'Window\nAttempts'),
-            ('webcam',    '📷', 'Face\nAnomalies'),
-            ('audio',     '🎤', 'Audio\nAnomalies'),
-        ]:
-            cf = tk.Frame(breach_row, bg=C['surface'],
-                          padx=14, pady=10,
-                          highlightthickness=1,
-                          highlightbackground=C['border'])
-            cf.pack(side=tk.LEFT, padx=(0, 6))
-            tk.Label(cf, text=icon, font=('Segoe UI', 14),
-                     bg=C['surface'], fg=C['warning']).pack()
+        breach_def = [
+            ('keyboard',  '⌨',  'Keystrokes',   C['info']),
+            ('processes', '🔍', 'Processes',     C['danger']),
+            ('network',   '🌐', 'Network',       C['warning']),
+            ('usb',       '💾', 'USB',           C['accent']),
+            ('windows',   '🪟', 'Windows',       C['primary']),
+            ('webcam',    '📷', 'Face',          C['success']),
+            ('audio',     '🎤', 'Audio',         C['warning']),
+        ]
+        for key, icon, label, color in breach_def:
+            # Card with left color accent
+            cf_outer = tk.Frame(breach_row, bg=color, padx=2)
+            cf_outer.pack(side=tk.LEFT, padx=(0, 6), pady=2)
+            cf = tk.Frame(cf_outer, bg=C['surface'], padx=12, pady=10)
+            cf.pack(fill=tk.BOTH, expand=True)
+            tk.Label(cf, text=icon, font=('Segoe UI', 13),
+                     bg=C['surface'], fg=color).pack()
             count_lbl = tk.Label(cf, text='0',
-                                  font=('Segoe UI', 20, 'bold'),
-                                  bg=C['surface'], fg=C['danger'])
+                                  font=('Segoe UI', 22, 'bold'),
+                                  bg=C['surface'], fg=color)
             count_lbl.pack()
-            tk.Label(cf, text=label, font=('Segoe UI', 7),
+            tk.Label(cf, text=label.upper(), font=('Segoe UI', 7, 'bold'),
                      bg=C['surface'], fg=C['text_dim'],
                      justify=tk.CENTER).pack()
             self._breach_cards[key] = count_lbl
 
-        # Threat detection
+        # ── Threat detection strip
         section_header(pg, "Threat Detection", C['warning'])
-        tf = tk.Frame(pg, bg=C['card'], padx=16, pady=12)
-        tf.pack(fill=tk.X, padx=16, pady=(0, 8))
-        self._threat_label = tk.Label(tf, text="🛡️  No threats detected",
+        tf_outer = tk.Frame(pg, bg=C['warning'], padx=2, pady=0)
+        tf_outer.pack(fill=tk.X, padx=16, pady=(0, 6))
+        tf = tk.Frame(tf_outer, bg=C['card'], padx=16, pady=12)
+        tf.pack(fill=tk.BOTH, expand=True)
+        self._threat_label = tk.Label(tf, text="🛡  No threats detected — all systems nominal",
                                        font=('Segoe UI', 10),
                                        bg=C['card'], fg=C['success'])
         self._threat_label.pack(anchor=tk.W)
 
-        # Quick controls
+        # ── Quick controls row
         section_header(pg, "Quick Module Controls", C['accent'])
         qrow = tk.Frame(pg, bg=C['bg'])
         qrow.pack(fill=tk.X, padx=16, pady=(0, 8))
@@ -523,20 +533,35 @@ class AdminPanel:
             ("🖱  Mouse",          self._show_mouse_ctrl),
             ("🌐  Internet",       self._show_network_ctrl),
             ("🪟  Windows",        self._show_window_ctrl),
-            ("💾  USB",           self._show_usb_ctrl),
+            ("💾  USB",            self._show_usb_ctrl),
             ("🔑  Password",       self._change_password),
         ]:
             styled_btn(qrow, label, cmd, bg=C['surface']).pack(
                 side=tk.LEFT, padx=(0, 6), pady=4)
 
-        # ── Session History ───────────────────────────────────────
+        # ── Session History cards
         section_header(pg, "Session History", C['primary'])
         hist_row = tk.Frame(pg, bg=C['bg'])
         hist_row.pack(fill=tk.X, padx=16, pady=(0, 12))
 
-        self._hist_sessions  = self._stat_card(hist_row, "SESSIONS",       C['primary'],  is_bar=False)
-        self._hist_breaches  = self._stat_card(hist_row, "TOTAL BREACHES",  C['danger'],   is_bar=False)
-        self._hist_last      = self._stat_card(hist_row, "LAST SESSION",    C['accent'],   is_bar=False)
+        self._hist_sessions = self._stat_card(hist_row, "SESSIONS",       C['primary'], is_bar=False)
+        self._hist_breaches = self._stat_card(hist_row, "TOTAL BREACHES",  C['danger'],  is_bar=False)
+        self._hist_last     = self._stat_card(hist_row, "LAST SESSION",    C['accent'],  is_bar=False)
+        self._hist_lastb    = self._stat_card(hist_row, "LAST BREACHES",   C['warning'], is_bar=False)
+
+        styled_btn(hist_row, "🔄",
+                   self._refresh_session_history,
+                   bg=C['surface'], pady=4
+                   ).pack(side=tk.LEFT, padx=(8, 0), pady=8)
+
+        styled_btn(hist_row, "📤 Export Report",
+                   self._export_latest_report,
+                   bg=C['surface'], pady=4
+                   ).pack(side=tk.LEFT, padx=(8, 0), pady=8)
+
+        self._refresh_session_history()
+        return pg
+elf._stat_card(hist_row, "LAST SESSION",    C['accent'],   is_bar=False)
         self._hist_lastb     = self._stat_card(hist_row, "LAST BREACHES",   C['warning'],  is_bar=False)
 
         styled_btn(hist_row, "🔄",
