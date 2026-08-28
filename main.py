@@ -116,156 +116,230 @@ class ExamShield:
     # ═══════════════════════════════════════════════════════════════
     def _build_login_ui(self):
         C = Config.COLORS
+        import random, math
 
-        # ── Animated Header Canvas
+        # ── Animated Header Canvas (richer gradient + scanlines)
+        HDR_H = 230
         self._hdr_canvas = tk.Canvas(
-            self.root, bg=C['surface'], height=200,
+            self.root, bg=C['bg'], height=HDR_H,
             highlightthickness=0
         )
         self._hdr_canvas.pack(fill=tk.X)
 
-        # Gradient-like bands (simulated)
-        for i in range(200):
-            ratio = i / 200
-            r = int(12 + ratio * 14)
-            g = int(10 + ratio * 8)
-            b = int(36 + ratio * 26)
-            color = f'#{r:02x}{g:02x}{b:02x}'
-            self._hdr_canvas.create_rectangle(0, i, 500, i+1, fill=color, outline=color)
+        # Deep space gradient background
+        for i in range(HDR_H):
+            t = i / HDR_H
+            r = int(7  + t * 18)
+            g = int(7  + t * 10)
+            b = int(26 + t * 38)
+            self._hdr_canvas.create_rectangle(
+                0, i, 500, i + 1,
+                fill=f'#{r:02x}{g:02x}{b:02x}', outline=''
+            )
 
-        # Floating particles (static glowing dots)
-        import random
-        random.seed(42)
+        # Subtle scanline overlay (every 3rd row, very faint)
+        for i in range(0, HDR_H, 3):
+            self._hdr_canvas.create_rectangle(
+                0, i, 500, i + 1, fill='#00000018', outline=''
+            )
+
+        # ── Floating particles (3 colour groups, more varied)
+        random.seed(77)
         self._particles = []
-        for _ in range(22):
-            x = random.randint(10, 490)
-            y = random.randint(5, 195)
-            r = random.choice([1, 1, 2, 2, 3])
-            col = random.choice([C['primary'], C['accent'], C['primary_dark'], '#ffffff33'])
-            dot = self._hdr_canvas.create_oval(x-r, y-r, x+r, y+r, fill=col, outline='')
-            self._particles.append({'id': dot, 'x': x, 'y': y,
-                                    'dx': random.uniform(-0.4, 0.4),
-                                    'dy': random.uniform(-0.2, 0.2),
-                                    'r': r})
+        colour_groups = [
+            [C['primary'], C['primary_dark'], '#00d4ff88'],
+            [C['accent'],  '#a07af8', '#7f5af055'],
+            [C['success'], '#00e67660'],
+        ]
+        for g_idx, group in enumerate(colour_groups):
+            for _ in range(12):
+                x = random.randint(10, 490)
+                y = random.randint(5, HDR_H - 5)
+                r = random.choice([1, 1, 2, 2, 3])
+                col = random.choice(group)
+                dot = self._hdr_canvas.create_oval(
+                    x - r, y - r, x + r, y + r, fill=col, outline=''
+                )
+                speed = 0.15 + g_idx * 0.1
+                self._particles.append({
+                    'id': dot, 'x': x, 'y': y,
+                    'dx': random.uniform(-speed, speed),
+                    'dy': random.uniform(-speed * 0.5, speed * 0.5),
+                    'r': r, 'h': HDR_H,
+                })
         self._animate_particles()
 
-        # Shield glow aura
-        self._shield_aura = self._hdr_canvas.create_oval(
-            170, 20, 330, 160, fill='', outline=C['primary'], width=1
+        # ── Shield: triple glow rings
+        cx, cy = 250, 105
+        self._shield_ring3 = self._hdr_canvas.create_oval(
+            cx - 76, cy - 76, cx + 76, cy + 76,
+            fill='', outline=C['primary_glow2'], width=1
         )
-        self._shield_aura2 = self._hdr_canvas.create_oval(
-            180, 30, 320, 150, fill='', outline=C['primary_dark'], width=1
+        self._shield_ring2 = self._hdr_canvas.create_oval(
+            cx - 62, cy - 62, cx + 62, cy + 62,
+            fill='', outline=C['primary_muted'], width=1
+        )
+        self._shield_ring1 = self._hdr_canvas.create_oval(
+            cx - 50, cy - 50, cx + 50, cy + 50,
+            fill='', outline=C['primary'], width=2
         )
 
-        # Shield icon (Canvas polygon)
-        cx, cy = 250, 90
-        pts = [
-            cx, cy - 56,          # top
-            cx + 42, cy - 30,     # upper-right
-            cx + 42, cy + 16,     # lower-right
-            cx, cy + 58,          # bottom
-            cx - 42, cy + 16,     # lower-left
-            cx - 42, cy - 30,     # upper-left
-        ]
-        self._shield_outer = self._hdr_canvas.create_polygon(
-            pts, fill=C['primary'], outline=C['primary_dark'], width=2, smooth=False
-        )
-        inner_pts = [
-            cx, cy - 38,
-            cx + 28, cy - 20,
-            cx + 28, cy + 10,
-            cx, cy + 40,
-            cx - 28, cy + 10,
-            cx - 28, cy - 20,
+        # Shield polygon (outer)
+        shield_pts = [
+            cx,      cy - 60,   # top
+            cx + 45, cy - 32,   # upper-right
+            cx + 45, cy + 18,   # lower-right
+            cx,      cy + 62,   # bottom
+            cx - 45, cy + 18,   # lower-left
+            cx - 45, cy - 32,   # upper-left
         ]
         self._hdr_canvas.create_polygon(
-            inner_pts, fill=C['surface'], outline='', smooth=False
+            shield_pts,
+            fill=C['primary'], outline=C['primary_dark'], width=2
         )
-        # Checkmark inside shield
-        self._hdr_canvas.create_line(
-            cx - 14, cy + 2, cx - 2, cy + 14,
-            cx + 16, cy - 12,
-            fill=C['success'], width=3, joinstyle=tk.ROUND, capstyle=tk.ROUND
+        # Inner recessed shield
+        inner_pts = [
+            cx,      cy - 42,
+            cx + 30, cy - 22,
+            cx + 30, cy + 12,
+            cx,      cy + 44,
+            cx - 30, cy + 12,
+            cx - 30, cy - 22,
+        ]
+        self._hdr_canvas.create_polygon(
+            inner_pts, fill=C['header'], outline='', smooth=False
+        )
+        # Lock icon inside shield (padlock shape via lines)
+        # Shackle
+        self._hdr_canvas.create_arc(
+            cx - 12, cy - 26, cx + 12, cy - 4,
+            start=0, extent=180, style=tk.ARC,
+            outline=C['success'], width=3
+        )
+        # Lock body
+        self._hdr_canvas.create_rectangle(
+            cx - 14, cy - 10, cx + 14, cy + 18,
+            fill=C['success_muted'], outline=C['success'], width=2
+        )
+        # Keyhole
+        self._hdr_canvas.create_oval(
+            cx - 4, cy - 2, cx + 4, cy + 6,
+            fill=C['header'], outline=''
+        )
+        self._hdr_canvas.create_rectangle(
+            cx - 2, cy + 4, cx + 2, cy + 14,
+            fill=C['header'], outline=''
         )
 
-        # App name & subtitle
+        # App name & tagline
         self._hdr_canvas.create_text(
-            250, 157, text="EXAM SHIELD",
-            font=("Segoe UI", 17, "bold"), fill=C['primary']
+            250, HDR_H - 50,
+            text="EXAM SHIELD",
+            font=("Segoe UI", 18, "bold"), fill=C['primary']
         )
         self._hdr_canvas.create_text(
-            250, 177, text=f"v{Config.VERSION}  •  Secure Exam Environment",
+            250, HDR_H - 28,
+            text=f"v{Config.VERSION}  ·  Secure Examination Environment",
             font=("Segoe UI", 9), fill=C['text_dim']
         )
 
-        # Start pulse animation
-        self._pulse_phase = 0
+        # Animated shield reference for pulse
+        self._shield_ring1_ref = self._shield_ring1
+        self._shield_ring2_ref = self._shield_ring2
+        self._shield_ring3_ref = self._shield_ring3
+        self._pulse_phase = 0.0
         self._animate_shield()
 
-        # ── Separator
-        sep = tk.Frame(self.root, bg=C['primary'], height=2)
-        sep.pack(fill=tk.X)
+        # ── Separator (primary accent line)
+        tk.Frame(self.root, bg=C['primary'], height=2).pack(fill=tk.X)
 
-        # ── Form Card
-        card = tk.Frame(self.root, bg=C['card'])
-        card.pack(fill=tk.X, padx=32, pady=24)
+        # ── Login Card (with left-border accent + subtle top highlight)
+        outer_card = tk.Frame(self.root, bg=C['primary'], padx=1, pady=0)
+        outer_card.pack(fill=tk.X, padx=32, pady=20)
 
-        tk.Label(card, text="Admin Login", font=("Segoe UI", 14, "bold"),
-                 bg=C['card'], fg=C['text']).pack(pady=(18, 14))
+        card = tk.Frame(outer_card, bg=C['card'])
+        card.pack(fill=tk.BOTH, expand=True)
 
-        # Username
+        # Card header row
+        card_hdr = tk.Frame(card, bg=C['surface'], height=42)
+        card_hdr.pack(fill=tk.X)
+        card_hdr.pack_propagate(False)
+        tk.Label(card_hdr, text="🔐  Admin Authentication",
+                 font=("Segoe UI", 11, "bold"),
+                 bg=C['surface'], fg=C['primary']).pack(
+            side=tk.LEFT, padx=16, pady=10)
+        # Right: lock indicator
+        self._lock_dot = tk.Label(
+            card_hdr, text="⬤  SECURE",
+            font=("Consolas", 8, "bold"),
+            bg=C['surface'], fg=C['success']
+        )
+        self._lock_dot.pack(side=tk.RIGHT, padx=16)
+
+        tk.Frame(card, bg=C['border'], height=1).pack(fill=tk.X)
+
+        # Username field
         self._make_field(card, "USERNAME", "admin", show=None)
         self.username_var = self._last_field_var
 
-        # Password
+        # Password field
         self._make_field(card, "PASSWORD", "", show="•")
         self.password_var = self._last_field_var
         self._pw_entry = self._last_field_entry
 
-        # ── Attempt badge (hidden by default)
+        # Attempt badge
         self._attempt_badge = tk.Label(
             card, text="",
             font=("Segoe UI", 9, "bold"),
             bg=C['card'], fg=C['danger']
         )
-        self._attempt_badge.pack(pady=(0, 4))
+        self._attempt_badge.pack(pady=(2, 4))
 
         # Buttons
         btn_row = tk.Frame(card, bg=C['card'])
-        btn_row.pack(fill=tk.X, padx=20, pady=(16, 20))
+        btn_row.pack(fill=tk.X, padx=20, pady=(8, 20))
 
         self._login_btn = self._make_button(
-            btn_row, "   🔐  LOGIN", self._login,
-            bg=C['success'], fg='#0a0a0a'
+            btn_row, "  🔐   SIGN IN", self._login,
+            bg=C['primary'], fg='#040414'
         )
         self._login_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
 
         self._exit_btn = self._make_button(
-            btn_row, "EXIT", self._exit,
-            bg=C['danger'], fg='white'
+            btn_row, "✕  EXIT", self._exit,
+            bg=C['surface_alt'], fg=C['text_dim']
         )
         self._exit_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(6, 0))
 
-        # ── Info Footer
-        info = tk.Frame(self.root, bg=C['bg'])
-        info.pack(fill=tk.X, padx=32, pady=(0, 8))
+        # ── Status strip
+        status_strip = tk.Frame(self.root, bg='#0c0c24')
+        status_strip.pack(fill=tk.X, padx=32, pady=(0, 8))
 
-        admin_row = tk.Frame(info, bg='#131330')
-        admin_row.pack(fill=tk.X, pady=3)
-        tk.Label(admin_row, text="✅  Administrator Privileges Active",
-                 font=("Segoe UI", 9, "bold"), bg='#131330', fg=C['success'],
-                 pady=6).pack()
+        tk.Frame(status_strip, bg=C['border'], height=1).pack(fill=tk.X)
+        inner_strip = tk.Frame(status_strip, bg='#0c0c24')
+        inner_strip.pack(fill=tk.X, padx=0, pady=6)
 
-        # SECURITY: Admin hotkey is NOT displayed here.
-        # It requires password re-authentication before the panel is revealed.
+        tk.Label(inner_strip, text="⬤",
+                 font=("Segoe UI", 8), bg='#0c0c24',
+                 fg=C['success']).pack(side=tk.LEFT, padx=(10, 4))
+        tk.Label(inner_strip, text="Administrator Privileges Active",
+                 font=("Segoe UI", 8, "bold"), bg='#0c0c24',
+                 fg=C['text_dim']).pack(side=tk.LEFT)
 
-        # ── Footer
-        footer = tk.Frame(self.root, bg=C['surface'], height=28)
+        # Version chip on right
+        ver_lbl = tk.Label(inner_strip,
+                           text=f" v{Config.VERSION} ",
+                           font=("Consolas", 8),
+                           bg=C['primary_bg'], fg=C['primary'],
+                           padx=6, pady=2)
+        ver_lbl.pack(side=tk.RIGHT, padx=10)
+
+        # ── Footer bar
+        footer = tk.Frame(self.root, bg=C['surface'], height=26)
         footer.pack(side=tk.BOTTOM, fill=tk.X)
         footer.pack_propagate(False)
         self._footer_clock = tk.Label(
-            footer,
-            text="",
+            footer, text="",
             font=("Consolas", 8), bg=C['surface'], fg=C['text_dim']
         )
         self._footer_clock.pack(side=tk.RIGHT, padx=10)
@@ -275,10 +349,9 @@ class ExamShield:
                  ).pack(side=tk.LEFT, padx=10)
         self._tick_footer_clock()
 
-        # ── Key bindings
+        # Key bindings
         self._pw_entry.bind("<Return>", lambda e: self._login())
         self.root.bind("<Escape>", lambda e: self._exit())
-
         self._pw_entry.focus()
 
     def _make_field(self, parent, label, default, show=None):
