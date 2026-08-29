@@ -29,7 +29,8 @@ class ScreenshotManager:
         self._stop_event = threading.Event()
         self._thread = None
         self.session_dir = None
-        self.count = 0          # screenshots taken this session
+        self.session_id = ""        # short label burned into watermark
+        self.count = 0              # screenshots taken this session
         self._lock = threading.Lock()
 
     # ── Session lifecycle ────────────────────────────────────────
@@ -46,6 +47,7 @@ class ScreenshotManager:
         folder = os.path.join(Config.SCREENSHOT_DIR, f"{ts}_{label}")
         os.makedirs(folder, exist_ok=True)
         self.session_dir = folder
+        self.session_id = label[:8]   # first 8 chars used in watermark
         self.count = 0
         self.is_active = True
         self._stop_event.clear()
@@ -77,7 +79,7 @@ class ScreenshotManager:
                 target=self._snap, args=(reason,), daemon=True
             ).start()
 
-    # ── Core snap ────────────────────────────────────────────────
+    # ── Core snap ───────────────────────────────────────────
     def _snap(self, reason: str = "periodic"):
         if not self.session_dir or not PILLOW_AVAILABLE:
             return
@@ -86,13 +88,61 @@ class ScreenshotManager:
             filename = f"{ts}_{reason}.png"
             path = os.path.join(self.session_dir, filename)
             img = ImageGrab.grab()
+            img = self._watermark(img, reason)   # E6: burn provenance overlay
             img.save(path, "PNG", optimize=True)
             with self._lock:
                 self.count += 1
-                # ── Layer 4: Append entry to session manifest ─────────────────
+                # ── Layer 4: Append entry to session manifest ─────────────
                 self._append_manifest(filename, path, reason)
         except Exception as e:
             print(f"[Screenshot] Capture failed: {e}")
+
+    # ── E6: Watermark helper ────────────────────────────────────
+    def _watermark(self, img, reason: str):
+        """
+        Burn a semi-transparent provenance strip onto the bottom-right corner:
+            Session : <session_id>   Time : HH:MM:SS   Reason : <reason>
+        Falls back gracefully if Pillow fonts or ImageDraw are unavailable.
+        """
+        try:
+            from PIL import ImageDraw, ImageFont
+            draw = ImageDraw.Draw(img, 'RGBA')
+
+            now_str = datetime.datetime.now().strftime("%H:%M:%S")
+            text = (
+                f" Session: {self.session_id}  │  "
+                f"{now_str}  │  {reason} "
+            )
+
+            # Try loading a monospace font; fall back to default
+            try:
+                font = ImageFont.truetype("cour.ttf", 14)
+            except Exception:
+                try:
+                    font = ImageFont.truetype("DejaVuSansMono.ttf", 14)
+                except Exception:
+                    font = ImageFont.load_default()
+
+            # Measure text bounding box
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_w = bbox[2] - bbox[0]
+            text_h = bbox[3] - bbox[1]
+
+            img_w, img_h = img.size
+            pad = 6
+            x = img_w - text_w - pad * 2
+            y = img_h - text_h - pad * 2
+
+            # Semi-transparent dark background pill
+            draw.rectangle(
+                [x - pad, y - pad, img_w, img_h],
+                fill=(0, 0, 0, 160)
+            )
+            # White text
+            draw.text((x, y), text, fill=(220, 220, 220, 255), font=font)
+        except Exception:
+            pass  # never crash the screenshot capture
+        return img
 
     def _append_manifest(self, filename: str, path: str, reason: str):
         """
