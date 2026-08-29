@@ -2338,32 +2338,86 @@ class AdminPanel:
     def _change_password(self):
         dlg = tk.Toplevel(self.window)
         dlg.title('🔑 Change Admin Password')
-        dlg.geometry('420x340')
+        dlg.geometry('420x420')
         dlg.configure(bg=C['bg'])
         dlg.transient(self.window)
         dlg.grab_set()
-        self._center_dialog(dlg, 420, 340)
+        self._center_dialog(dlg, 420, 420)
         tk.Label(dlg, text='Change Password',
                  font=('Segoe UI', 14, 'bold'), bg=C['bg'],
                  fg=C['primary']).pack(pady=(18, 4))
-        # Show the active password policy as a hint
+        # Static policy hint line
         policy = Config.PASSWORD_POLICY
         hint = (
             f"Min {policy['min_length']} chars | "
             "Upper + Lower + Digit + Special required"
         )
         tk.Label(dlg, text=hint, font=('Segoe UI', 8),
-                 bg=C['bg'], fg=C['text_dim']).pack(pady=(0, 10))
+                 bg=C['bg'], fg=C['text_dim']).pack(pady=(0, 6))
+
         fields = {}
         for lbl_text in ['Current Password', 'New Password',
                           'Confirm New Password']:
             f = tk.Frame(dlg, bg=C['bg'])
-            f.pack(fill=tk.X, padx=32, pady=4)
+            f.pack(fill=tk.X, padx=32, pady=3)
             tk.Label(f, text=lbl_text, font=('Segoe UI', 10),
                      bg=C['bg'], fg=C['text']).pack(anchor=tk.W)
             var = tk.StringVar()
             dark_entry(f, var, show='*').pack(fill=tk.X, ipady=6)
             fields[lbl_text] = var
+
+        # ── E4: Live password strength meter ──────────────────────────────
+        _STRENGTH_LABELS = ['Weak', 'Fair', 'Good', 'Strong']
+        _STRENGTH_COLORS = ['#ff4757', '#ffa502', '#eccc68', '#2ed573']
+
+        strength_frame = tk.Frame(dlg, bg=C['bg'])
+        strength_frame.pack(fill=tk.X, padx=32, pady=(4, 0))
+        strength_lbl = tk.Label(strength_frame, text='Strength: —',
+                                 font=('Segoe UI', 8, 'bold'),
+                                 bg=C['bg'], fg=C['text_dim'])
+        strength_lbl.pack(anchor=tk.W, pady=(0, 3))
+
+        bar_frame = tk.Frame(strength_frame, bg=C['bg'])
+        bar_frame.pack(fill=tk.X)
+        segments = []
+        for _ in range(4):
+            seg = tk.Frame(bar_frame, bg=C['surface'], height=6, width=60)
+            seg.pack(side=tk.LEFT, padx=2)
+            seg.pack_propagate(False)
+            segments.append(seg)
+
+        change_btn_ref = [None]   # filled below after button creation
+
+        def _update_strength(*_):
+            pw = fields['New Password'].get()
+            score = 0
+            p = Config.PASSWORD_POLICY
+            if len(pw) >= p.get('min_length', 10):
+                score += 1
+            if re.search(r'[A-Z]', pw) and re.search(r'[a-z]', pw):
+                score += 1
+            if re.search(r'\d', pw):
+                score += 1
+            if re.search(r'[!@#$%^&*()\-_=+\[\]{}|;:,.<>?/]', pw):
+                score += 1
+
+            for i, seg in enumerate(segments):
+                seg.config(bg=_STRENGTH_COLORS[score - 1] if i < score and score > 0
+                           else C['surface'])
+
+            if score == 0:
+                strength_lbl.config(text='Strength: —', fg=C['text_dim'])
+            else:
+                lbl = _STRENGTH_LABELS[score - 1]
+                strength_lbl.config(text=f'Strength: {lbl}',
+                                     fg=_STRENGTH_COLORS[score - 1])
+
+            # Enable/disable submit based on full policy pass
+            if change_btn_ref[0]:
+                state = 'normal' if score == 4 else 'disabled'
+                change_btn_ref[0].config(state=state)
+
+        fields['New Password'].trace_add('write', _update_strength)
 
         def do_change():
             cur     = fields['Current Password'].get()
@@ -2376,7 +2430,7 @@ class AdminPanel:
                 messagebox.showerror('Error', "Passwords don't match",
                                       parent=dlg)
                 return
-            # change_password now enforces the strength policy and returns (ok, reason)
+            # change_password enforces strength policy and returns (ok, reason)
             ok, reason = self.db.change_password(self.admin_user, cur, new)
             if ok:
                 self._toast("✅ Password changed", C['success'])
@@ -2387,8 +2441,11 @@ class AdminPanel:
                 messagebox.showerror('Error', reason or 'Password change failed.',
                                       parent=dlg)
 
-        styled_btn(dlg, 'Change Password', do_change,
-                   bg=C['primary'], fg='#0a0a0a').pack(pady=14)
+        btn = styled_btn(dlg, 'Change Password', do_change,
+                         bg=C['primary'], fg='#0a0a0a')
+        btn.config(state='disabled')   # disabled until strength == 4
+        btn.pack(pady=14)
+        change_btn_ref[0] = btn
 
     # ── Log integrity verification ────────────────────────────────
     def _verify_log_integrity(self):
