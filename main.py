@@ -8,6 +8,7 @@ import sys
 import os
 import atexit
 import ctypes
+import time
 import threading
 from src.config import Config
 from src.managers.database_manager import DatabaseManager
@@ -510,32 +511,6 @@ class ExamShield:
             self._shake_window()
             return
 
-        try:
-            # ── Check DB-persistent lockout first (survives process restarts) ──
-            is_locked, secs_remaining, tier = self.db.get_lockout(user)
-            if is_locked:
-                if secs_remaining == -1:
-                    self._attempt_badge.config(
-                        text="🔒  Account permanently locked — contact administrator",
-                        fg=Config.COLORS['danger']
-                    )
-                else:
-                    self._attempt_badge.config(
-                        text=f"🔒  Account locked — try again in {secs_remaining}s",
-                        fg=Config.COLORS['danger']
-                    )
-                self._shake_window()
-                return
-
-            # ── Verify credentials (raw password; PBKDF2 handled in DB layer) ──
-            if self.db.verify_admin(user, pw):
-                self._logged_in_user = user
-                self._login_attempts = 0
-                self._attempt_badge.config(text="")
-                self.db.clear_failed_logins(user)
-                self.db.clear_lockout(user)
-                self._start_session()
-            else:
                 self._login_attempts += 1
                 self.db.log_failed_login(user)
                 self._shake_window()
