@@ -69,6 +69,11 @@ class Config:
     # ── Database Security ─────────────────────────────────────────
     DB_WAL_MODE = True            # Enable WAL journal mode for reduced race window
 
+    # ── Constant-time login defence (E3) ─────────────────────────
+    # Every login attempt (success or failure) takes at least this long.
+    # Prevents timing attacks that reveal which step of auth failed.
+    LOGIN_MIN_DELAY_MS = 400      # milliseconds
+
     # ── Default Credentials ──────────────────────────────────────
     # NOTE: No plaintext default password is stored here.
     # On first run, DatabaseManager generates a random password and prints
