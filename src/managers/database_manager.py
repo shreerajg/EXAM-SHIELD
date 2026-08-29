@@ -79,7 +79,17 @@ def validate_password_strength(password: str) -> tuple[bool, str]:
 class DatabaseManager:
     def __init__(self):
         self.db_path = Config.DATABASE_PATH
+        self._audit_instance = None   # lazy-init to avoid circular import
         self._init_database()
+
+    # ── Lazy AuditManager accessor ────────────────────────────────
+    @property
+    def _audit(self):
+        """Return the per-DatabaseManager AuditManager, creating it once."""
+        if self._audit_instance is None:
+            from src.managers.audit_manager import AuditManager
+            self._audit_instance = AuditManager(self)
+        return self._audit_instance
 
     # ── Schema ───────────────────────────────────────────────────
     def _init_database(self):
@@ -144,6 +154,22 @@ class DatabaseManager:
 
                 if not self.admin_exists():
                     self._create_default_admin(c, conn)
+
+                # E2 — Database integrity check on every startup
+                result = conn.execute('PRAGMA integrity_check=fast').fetchone()
+                if result and result[0] != 'ok':
+                    print(f"[DB] ⚠  integrity_check returned: {result[0]}")
+                    try:
+                        conn.execute(
+                            "INSERT INTO activity_logs (action, details, blocked) "
+                            "VALUES ('DB_INTEGRITY_FAIL', ?, 1)",
+                            (f"integrity_check={result[0]}",)
+                        )
+                        conn.commit()
+                    except sqlite3.Error:
+                        pass
+                else:
+                    print("[DB] integrity_check: ok")
         except sqlite3.Error as e:
             print(f"[DB] Init error: {e}")
 
@@ -334,8 +360,9 @@ class DatabaseManager:
         _, _, tier = self.get_lockout(username)
         return tier
 
-    # ── Activity Logs ────────────────────────────────────────────
+    # ── Activity Logs ───────────────────────────────────────────
     def log_activity(self, action, details=None, blocked=False, user_id=None):
+        """Insert one activity log row and immediately chain-hash it (E1)."""
         try:
             with self._conn() as conn:
                 conn.execute(
@@ -343,6 +370,20 @@ class DatabaseManager:
                     (user_id, action, details, blocked),
                 )
                 conn.commit()
+                row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                ts_row = conn.execute(
+                    "SELECT timestamp FROM activity_logs WHERE id=?", (row_id,)
+                ).fetchone()
+                timestamp = ts_row[0] if ts_row else ""
+
+            # Append the HMAC chain hash for this new row (outside the above
+            # 'with' block so _audit._conn() gets its own clean connection).
+            try:
+                self._audit.append_chain_hash(
+                    row_id, action, details or "", timestamp
+                )
+            except Exception as ae:
+                print(f"[DB] chain-hash error: {ae}")
         except sqlite3.Error as e:
             print(f"[DB] Log error: {e}")
 
