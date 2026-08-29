@@ -85,10 +85,17 @@ class DatabaseManager:
     # ── Lazy AuditManager accessor ────────────────────────────────
     @property
     def _audit(self):
-        """Return the per-DatabaseManager AuditManager, creating it once."""
+        """Return the per-DatabaseManager AuditManager, creating it once.
+        On first access, backfills chain hashes for any pre-existing NULL rows
+        so that new writes chain correctly from a solid baseline.
+        """
         if self._audit_instance is None:
             from src.managers.audit_manager import AuditManager
             self._audit_instance = AuditManager(self)
+            # Backfill pre-existing rows so the chain is solid before any new writes
+            filled = self._audit_instance.backfill_chain()
+            if filled:
+                print(f"[DB] audit: backfilled {filled} pre-chain row(s)")
         return self._audit_instance
 
     # ── Schema ───────────────────────────────────────────────────
@@ -156,7 +163,8 @@ class DatabaseManager:
                     self._create_default_admin(c, conn)
 
                 # E2 — Database integrity check on every startup
-                result = conn.execute('PRAGMA integrity_check=fast').fetchone()
+                # PRAGMA integrity_check returns 'ok' if no corruption found.
+                result = conn.execute('PRAGMA integrity_check').fetchone()
                 if result and result[0] != 'ok':
                     print(f"[DB] ⚠  integrity_check returned: {result[0]}")
                     try:
