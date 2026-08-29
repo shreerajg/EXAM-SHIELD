@@ -463,6 +463,25 @@ class SecurityManager:
                             self.log.security("SUSPICIOUS_PROCESS",
                                               f"Terminated: {name}", blocked=True)
                             proc.terminate()
+
+                            # E5 — SIGKILL escalation after 1.5 s if still alive
+                            def _escalate(p=proc, n=name):
+                                try:
+                                    import time as _t
+                                    _t.sleep(1.5)
+                                    if p.is_running() and p.status() != 'zombie':
+                                        p.kill()
+                                        self.log.security(
+                                            "SUSPICIOUS_PROCESS_KILLED",
+                                            f"Force-killed (SIGKILL) after SIGTERM ignored: {n}",
+                                            blocked=True
+                                        )
+                                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                                    pass  # already dead — great
+                                except Exception as ex:
+                                    self.log.error("PROC_KILL", f"Escalation error: {ex}")
+                            threading.Thread(target=_escalate, daemon=True).start()
+
                             self.screenshot_manager.capture_violation(
                                 reason=f"proc_{name}"
                             )
