@@ -10,6 +10,7 @@ from pynput import mouse as pynput_mouse
 from src.config import Config
 from src.logger import ExamShieldLogger
 from src.managers.profile_manager import ProfileManager
+from src.managers.audit_manager import AuditManager
 from src.ui.exam_timer import ExamTimer
 
 C = Config.COLORS
@@ -101,6 +102,9 @@ class AdminPanel:
         self.admin_user = admin_user
         self.log = ExamShieldLogger(db_manager)
         self.sec.set_admin_panel(self)
+        self.audit = AuditManager(db_manager)   # tamper-evident log chain
+        # Backfill chain hashes for any pre-existing rows (no-op on fresh DB)
+        self.audit.backfill_chain()
 
         self._detecting_key = False
         self._detecting_mouse = False
@@ -1185,6 +1189,12 @@ class AdminPanel:
                        ('💾 Export',  self._export_logs)]:
             styled_btn(toolbar, t, cmd, bg=C['surface']).pack(
                 side=tk.LEFT, padx=(0, 6))
+        # Verify Log Integrity button (right-aligned)
+        styled_btn(
+            toolbar, '🔒 Verify Log Integrity',
+            self._verify_log_integrity,
+            bg=C['surface_alt']
+        ).pack(side=tk.RIGHT, padx=(0, 6))
         tk.Label(toolbar, text='Filter:', bg=C['bg'],
                  fg=C['text_dim']).pack(side=tk.LEFT, padx=(16, 4))
         self._filter_var = tk.StringVar(value='All')
@@ -2177,6 +2187,20 @@ class AdminPanel:
     # ── Settings persistence ──────────────────────────────────────
     def _save_settings(self):
         try:
+            # Capture old values BEFORE saving — used for audit trail
+            old_interval = self.db.get_setting('screenshot_interval',
+                                               str(Config.SCREENSHOT_INTERVAL_SEC))
+            old_allowed  = self.db.get_setting('allowed_websites', '[]')
+            old_bulk = {
+                'blocked_keys':          self.db.get_setting('blocked_keys', ''),
+                'blocked_mouse_buttons': self.db.get_setting('blocked_mouse_buttons', ''),
+                'blocked_websites':      self.db.get_setting('blocked_websites', ''),
+                'auto_start_exam':       self.db.get_setting('auto_start_exam', ''),
+                'block_internet':        self.db.get_setting('block_internet', ''),
+                'window_protection':     self.db.get_setting('window_protection', ''),
+                'process_monitoring':    self.db.get_setting('process_monitoring', ''),
+            }
+
             # Screenshot interval
             interval = self._ss_interval_var.get() if hasattr(self, '_ss_interval_var') else 60
             interval = max(10, min(300, interval))
@@ -2188,18 +2212,32 @@ class AdminPanel:
             Config.ALLOWED_WEBSITES = allowed
             self.db.save_setting('allowed_websites', json.dumps(allowed))
 
-            self.db.save_settings_bulk({
-                'blocked_keys':
-                    json.dumps(self.sec.blocked_keys),
-                'blocked_mouse_buttons':
-                    json.dumps(self.sec.mouse_manager.blocked_buttons),
-                'blocked_websites':
-                    json.dumps(Config.BLOCKED_WEBSITES),
-                'auto_start_exam': str(self._autostart_var.get()),
-                'block_internet':  str(self._net_var.get()),
-                'window_protection': str(self._winprot_var.get()),
-                'process_monitoring': str(self._procmon_var.get()),
-            })
+            new_bulk = {
+                'blocked_keys':          json.dumps(self.sec.blocked_keys),
+                'blocked_mouse_buttons': json.dumps(self.sec.mouse_manager.blocked_buttons),
+                'blocked_websites':      json.dumps(Config.BLOCKED_WEBSITES),
+                'auto_start_exam':       str(self._autostart_var.get()),
+                'block_internet':        str(self._net_var.get()),
+                'window_protection':     str(self._winprot_var.get()),
+                'process_monitoring':    str(self._procmon_var.get()),
+            }
+            self.db.save_settings_bulk(new_bulk)
+
+            # Audit trail: log every value that actually changed
+            if old_interval != str(interval):
+                self.db.log_settings_change(
+                    'screenshot_interval', old_interval, str(interval),
+                    user=self.admin_user)
+            if old_allowed != json.dumps(allowed):
+                self.db.log_settings_change(
+                    'allowed_websites', old_allowed, json.dumps(allowed),
+                    user=self.admin_user)
+            for key in new_bulk:
+                if old_bulk.get(key, '') != new_bulk[key]:
+                    self.db.log_settings_change(
+                        key, old_bulk.get(key, ''), new_bulk[key],
+                        user=self.admin_user)
+
             self._toast("💾 Settings saved", C['success'])
         except Exception as e:
             messagebox.showerror('Error', f'Save failed: {e}',
@@ -2300,14 +2338,22 @@ class AdminPanel:
     def _change_password(self):
         dlg = tk.Toplevel(self.window)
         dlg.title('🔑 Change Admin Password')
-        dlg.geometry('420x300')
+        dlg.geometry('420x340')
         dlg.configure(bg=C['bg'])
         dlg.transient(self.window)
         dlg.grab_set()
-        self._center_dialog(dlg, 420, 300)
+        self._center_dialog(dlg, 420, 340)
         tk.Label(dlg, text='Change Password',
                  font=('Segoe UI', 14, 'bold'), bg=C['bg'],
-                 fg=C['primary']).pack(pady=(18, 14))
+                 fg=C['primary']).pack(pady=(18, 4))
+        # Show the active password policy as a hint
+        policy = Config.PASSWORD_POLICY
+        hint = (
+            f"Min {policy['min_length']} chars | "
+            "Upper + Lower + Digit + Special required"
+        )
+        tk.Label(dlg, text=hint, font=('Segoe UI', 8),
+                 bg=C['bg'], fg=C['text_dim']).pack(pady=(0, 10))
         fields = {}
         for lbl_text in ['Current Password', 'New Password',
                           'Confirm New Password']:
@@ -2330,22 +2376,65 @@ class AdminPanel:
                 messagebox.showerror('Error', "Passwords don't match",
                                       parent=dlg)
                 return
-            if len(new) < 4:
-                messagebox.showerror('Error', 'Min 4 characters', parent=dlg)
-                return
-            if self.db.change_password(
-                    self.admin_user,
-                    hashlib.sha256(cur.encode()).hexdigest(),
-                    hashlib.sha256(new.encode()).hexdigest()):
+            # change_password now enforces the strength policy and returns (ok, reason)
+            ok, reason = self.db.change_password(self.admin_user, cur, new)
+            if ok:
                 self._toast("✅ Password changed", C['success'])
-                self.log.info('PASSWORD_CHANGED', 'Admin password updated')
+                self.log.info('PASSWORD_CHANGED',
+                              f'Admin password updated for user={self.admin_user}')
                 dlg.destroy()
             else:
-                messagebox.showerror('Error', 'Current password incorrect',
+                messagebox.showerror('Error', reason or 'Password change failed.',
                                       parent=dlg)
 
         styled_btn(dlg, 'Change Password', do_change,
                    bg=C['primary'], fg='#0a0a0a').pack(pady=14)
+
+    # ── Log integrity verification ────────────────────────────────
+    def _verify_log_integrity(self):
+        """Run AuditManager chain verification and show the result in a modal."""
+        result = self.audit.verify_log_chain()
+        if result.ok:
+            icon  = "✅"
+            color = C['success']
+            title = "Log Integrity: OK"
+            detail_lines = (
+                f"Rows verified : {result.total_rows}\n"
+                + (f"Pre-chain rows (skipped): {result.missing_hashes}\n"
+                   if result.missing_hashes else "")
+                + f"\n{result.message}"
+            )
+        else:
+            icon  = "❌"
+            color = C['danger']
+            title = "Log Integrity: TAMPER DETECTED"
+            detail_lines = (
+                f"First broken row ID : {result.first_broken_id}\n"
+                f"Index in chain      : {result.broken_at_index}\n"
+                f"Total rows checked  : {result.total_rows}\n\n"
+                f"{result.message}"
+            )
+            self.log.warning(
+                "LOG_INTEGRITY_FAIL",
+                f"Chain broken at row id={result.first_broken_id}"
+            )
+
+        dlg = tk.Toplevel(self.window)
+        dlg.title(title)
+        dlg.geometry('480x270')
+        dlg.configure(bg=C['bg'])
+        dlg.transient(self.window)
+        dlg.grab_set()
+        self._center_dialog(dlg, 480, 270)
+        tk.Label(dlg,
+                 text=f"{icon}  Log Chain Verification",
+                 font=('Segoe UI', 14, 'bold'), bg=C['bg'],
+                 fg=color).pack(pady=(18, 10))
+        tk.Label(dlg, text=detail_lines,
+                 font=('Consolas', 9), bg=C['bg'], fg=C['text'],
+                 justify=tk.LEFT, wraplength=440).pack(padx=24)
+        styled_btn(dlg, 'Close', dlg.destroy,
+                   bg=C['surface']).pack(pady=14)
 
     # ── Quick module toggles ──────────────────────────────────────
     def _show_mouse_ctrl(self):
