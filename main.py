@@ -281,11 +281,41 @@ class ExamShield:
         # Username field
         self._make_field(card, "USERNAME", "admin", show=None)
         self.username_var = self._last_field_var
+        self._username_entry = self._last_field_entry
 
         # Password field
         self._make_field(card, "PASSWORD", "", show="•")
         self.password_var = self._last_field_var
         self._pw_entry = self._last_field_entry
+
+        # ── Input validation: enforce max-length limits ────────────────────────
+        # Silently truncate if the user pastes an oversized string.
+        _user_max = Config.LOGIN_USERNAME_MAX_LEN   # 64 chars
+        _pw_max   = Config.LOGIN_PASSWORD_MAX_LEN   # 256 chars
+
+        def _limit_username(*_):
+            v = self.username_var.get()
+            if len(v) > _user_max:
+                self.username_var.set(v[:_user_max])
+        def _limit_password(*_):
+            v = self.password_var.get()
+            if len(v) > _pw_max:
+                self.password_var.set(v[:_pw_max])
+
+        self.username_var.trace_add('write', _limit_username)
+        self.password_var.trace_add('write', _limit_password)
+
+        # Strip ASCII control characters from username on focus-out
+        import unicodedata
+        def _sanitise_username(event=None):
+            v = self.username_var.get()
+            cleaned = ''.join(
+                c for c in v
+                if unicodedata.category(c) not in ('Cc', 'Cf', 'Co', 'Cs')
+            )
+            if cleaned != v:
+                self.username_var.set(cleaned)
+        self._username_entry.bind('<FocusOut>', _sanitise_username)
 
         # Attempt badge
         self._attempt_badge = tk.Label(
