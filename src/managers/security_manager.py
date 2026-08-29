@@ -6,6 +6,7 @@ processes, screenshots, timer, report generation).
 import hashlib
 import hmac
 import secrets
+import time
 import keyboard
 import threading
 import psutil
@@ -80,6 +81,11 @@ class SecurityManager:
         self._session_id: str   = ""
         self._session_seal: str = ""  # HMAC-SHA256 computed at start
 
+        # Re-auth rate limiter: tracks failed hotkey re-auth attempts.
+        # {timestamp_float, ...} — entries older than REAUTH_WINDOW_SEC are dropped.
+        self._reauth_attempts: list = []  # list of epoch floats (failed attempts)
+        self._reauth_locked_until: float = 0.0  # epoch; 0 = not locked
+
 
     def set_admin_panel(self, panel):
         self.admin_panel = panel
@@ -99,11 +105,18 @@ class SecurityManager:
         # Reset breach counters
         self.breach_counts = {k: 0 for k in self.breach_counts}
 
+        # Freeze selective_blocking into an immutable local snapshot so that
+        # any in-memory mutation of Config during the exam has no effect.
         if selective_options:
             self.selective_blocking.update(selective_options)
+        self._active_blocking = dict(self.selective_blocking)  # frozen snapshot
+        self.log.info(
+            "EXAM_CONFIG_SNAPSHOT",
+            f"Selective blocking snapshot: {self._active_blocking}"
+        )
             
         # Hardware Pre-flight checks
-        sel = self.selective_blocking
+        sel = self._active_blocking  # use the frozen snapshot throughout
         success, err_msg = self.hardware_manager.run_preflight_checks(
             block_multi_monitor=sel.get('multi_monitor', True),
             detect_vm_rdp=sel.get('vm_rdp', True)
@@ -140,7 +153,7 @@ class SecurityManager:
         self.log.info("SESSION_SEAL",
                       f"Integrity seal recorded for session {self._session_id}")
 
-        sel = self.selective_blocking
+        sel = self._active_blocking  # frozen snapshot — safe against mid-exam Config changes
         if sel.get('keyboard', True):
             self._setup_keyboard_hooks()
         if sel.get('processes', True):
@@ -344,8 +357,24 @@ class SecurityManager:
     def _on_admin_hotkey(self):
         """
         Admin hotkey handler — REQUIRES password re-authentication.
-        The panel is only revealed after the admin enters the correct password.
+        Rate-limited: max REAUTH_MAX_ATTEMPTS failed attempts in REAUTH_WINDOW_SEC seconds
+        before the dialog is suppressed and the breach is logged.
         """
+        # ── Rate-limit check ────────────────────────────────────────────────────
+        now = time.monotonic()
+        window = Config.REAUTH_WINDOW_SEC
+        # Prune entries older than the window
+        self._reauth_attempts = [
+            t for t in self._reauth_attempts if now - t < window
+        ]
+        if len(self._reauth_attempts) >= Config.REAUTH_MAX_ATTEMPTS:
+            self.log.warning(
+                "ADMIN_HOTKEY",
+                f"Re-auth hotkey suppressed — rate limit reached "
+                f"({Config.REAUTH_MAX_ATTEMPTS} failed attempts in last {window}s)"
+            )
+            return
+
         self.log.info("ADMIN_HOTKEY", "Admin access requested via hotkey — re-auth required")
         if not self.admin_panel:
             return
@@ -354,12 +383,9 @@ class SecurityManager:
             from tkinter import simpledialog, messagebox
             from src.managers.database_manager import verify_password
 
-            # We need a reference to the current DB to verify
             db = self.db_manager
 
-            # Build a modal re-auth dialog on the main thread
             def _do_reauth():
-                # Fetch stored hash for the logged-in admin
                 try:
                     with db._conn() as conn:
                         row = conn.execute(
@@ -369,11 +395,10 @@ class SecurityManager:
                         return
                     stored_username, stored_hash = row
 
-                    # Determine Tk parent
                     parent = getattr(self.admin_panel, 'window', None)
 
                     pw = simpledialog.askstring(
-                        "🔐  Admin Re-Authentication",
+                        "\U0001f510  Admin Re-Authentication",
                         f"Enter password for '{stored_username}' to access admin panel:",
                         parent=parent,
                         show='*'
@@ -382,19 +407,28 @@ class SecurityManager:
                         self.log.warning("ADMIN_HOTKEY", "Re-auth cancelled")
                         return
                     if verify_password(pw, stored_hash):
+                        # Success — clear the failed-attempt counter
+                        self._reauth_attempts.clear()
                         self.log.info("ADMIN_HOTKEY", "Re-auth success — panel revealed")
                         self.admin_panel.show()
                     else:
-                        self.log.warning("ADMIN_HOTKEY", "Re-auth FAILED — panel NOT revealed")
+                        # Record this failed attempt in the rate-limit window
+                        self._reauth_attempts.append(time.monotonic())
+                        remaining = Config.REAUTH_MAX_ATTEMPTS - len(self._reauth_attempts)
+                        self.log.warning(
+                            "ADMIN_HOTKEY",
+                            f"Re-auth FAILED — panel NOT revealed "
+                            f"({remaining} attempt(s) remaining before suppression)"
+                        )
                         messagebox.showerror(
                             "Access Denied",
-                            "Incorrect password. Admin panel access denied.",
+                            f"Incorrect password. Admin panel access denied.\n"
+                            f"{remaining} attempt(s) remaining before lockout.",
                             parent=parent
                         )
                 except Exception as ex:
                     self.log.error("ADMIN_HOTKEY", f"Re-auth error: {ex}")
 
-            # Schedule on Tk main thread
             win = getattr(self.admin_panel, 'window', None)
             if win:
                 win.after(0, _do_reauth)

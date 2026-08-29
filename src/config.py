@@ -46,6 +46,29 @@ class Config:
     LOGIN_MAX_ATTEMPTS   = 3     # attempts allowed before FIRST lockout
     LOGIN_LOCKOUT_SEC    = 60    # Tier-1 lockout (kept for countdown display)
 
+    # ── Login Input Limits ────────────────────────────────────────
+    LOGIN_USERNAME_MAX_LEN = 64   # max characters accepted in the username field
+    LOGIN_PASSWORD_MAX_LEN = 256  # max characters accepted in the password field
+
+    # ── Password Strength Policy ──────────────────────────────────
+    PASSWORD_MIN_LENGTH = 10      # absolute minimum length for new passwords
+    PASSWORD_POLICY = {
+        'min_length':   10,
+        'require_upper': True,    # at least one A-Z
+        'require_lower': True,    # at least one a-z
+        'require_digit': True,    # at least one 0-9
+        'require_special': True,  # at least one !@#$%^&*()-_=+[]{}|;:,.<>?/
+        'special_chars': r"""!@#$%^&*()-_=+[]{}|;:,.<>?/""",
+    }
+
+    # ── Admin Re-Auth Rate Limiting ───────────────────────────────
+    # Protects the hotkey re-auth dialog from being spammed.
+    REAUTH_MAX_ATTEMPTS = 3       # failed re-auth attempts before suppression
+    REAUTH_WINDOW_SEC   = 300     # sliding window (seconds) for counting attempts
+
+    # ── Database Security ─────────────────────────────────────────
+    DB_WAL_MODE = True            # Enable WAL journal mode for reduced race window
+
     # ── Default Credentials ──────────────────────────────────────
     # NOTE: No plaintext default password is stored here.
     # On first run, DatabaseManager generates a random password and prints

@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import datetime
 import secrets
 from src.config import Config
@@ -48,6 +49,31 @@ def verify_password(password: str, stored: str) -> bool:
         # Legacy SHA-256 (no salt) — accepted for migration only
         legacy = hashlib.sha256(password.encode('utf-8')).hexdigest()
         return hmac.compare_digest(legacy, stored)
+
+
+def validate_password_strength(password: str) -> tuple[bool, str]:
+    """
+    Validate *password* against the policy defined in Config.PASSWORD_POLICY.
+    Returns (ok: bool, reason: str).  reason is empty string on success.
+    """
+    policy = Config.PASSWORD_POLICY
+    min_len = policy.get('min_length', Config.PASSWORD_MIN_LENGTH)
+    if len(password) < min_len:
+        return False, f"Password must be at least {min_len} characters long."
+    if policy.get('require_upper') and not re.search(r'[A-Z]', password):
+        return False, "Password must contain at least one uppercase letter (A-Z)."
+    if policy.get('require_lower') and not re.search(r'[a-z]', password):
+        return False, "Password must contain at least one lowercase letter (a-z)."
+    if policy.get('require_digit') and not re.search(r'\d', password):
+        return False, "Password must contain at least one digit (0-9)."
+    if policy.get('require_special'):
+        specials = re.escape(policy.get('special_chars', '!@#$%^&*()-_=+[]{}|;:,.<>?/'))
+        if not re.search(f'[{specials}]', password):
+            return False, (
+                "Password must contain at least one special character "
+                "(e.g. !@#$%^&*)"
+            )
+    return True, ""
 
 
 class DatabaseManager:
@@ -122,7 +148,13 @@ class DatabaseManager:
             print(f"[DB] Init error: {e}")
 
     def _conn(self):
-        return sqlite3.connect(self.db_path, timeout=10, check_same_thread=False)
+        """Open a DB connection with WAL journal mode for a smaller race window."""
+        conn = sqlite3.connect(self.db_path, timeout=10, check_same_thread=False)
+        if Config.DB_WAL_MODE:
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA synchronous=NORMAL')   # safe with WAL
+        conn.execute('PRAGMA foreign_keys=ON')
+        return conn
 
     def _create_default_admin(self, cursor, conn):
         """Create the first admin with a random secure password (printed once)."""
@@ -198,8 +230,16 @@ class DatabaseManager:
             return False
 
     def change_password(self, username: str, old_password: str,
-                        new_password: str) -> bool:
-        """Change admin password.  Both arguments are RAW plaintext. Returns True on success."""
+                        new_password: str) -> tuple[bool, str]:
+        """
+        Change admin password.  Both arguments are RAW plaintext.
+        Returns (True, '') on success or (False, reason_string) on failure.
+        Now enforces the password-strength policy defined in Config.PASSWORD_POLICY.
+        """
+        # Validate new password strength before touching the DB
+        ok, reason = validate_password_strength(new_password)
+        if not ok:
+            return False, reason
         try:
             with self._conn() as conn:
                 row = conn.execute(
@@ -207,20 +247,20 @@ class DatabaseManager:
                     (username,),
                 ).fetchone()
                 if not row:
-                    return False
+                    return False, "User not found."
                 user_id, stored_hash = row
                 if not verify_password(old_password, stored_hash):
-                    return False
+                    return False, "Current password is incorrect."
                 new_hash = hash_password(new_password)
                 conn.execute(
                     "UPDATE users SET password_hash=? WHERE id=?",
                     (new_hash, user_id),
                 )
                 conn.commit()
-                return True
+                return True, ""
         except sqlite3.Error as e:
             print(f"[DB] Password change error: {e}")
-            return False
+            return False, f"Database error: {e}"
 
     # ── Persistent Lockout ───────────────────────────────────────
     _LOCKOUT_TIERS = [
@@ -506,6 +546,16 @@ class DatabaseManager:
                 conn.commit()
         except sqlite3.Error as e:
             print(f"[DB] Clear failed logins error: {e}")
+
+    # ── Settings Change Audit ─────────────────────────────────
+    def log_settings_change(self, key: str, old_value: str, new_value: str,
+                            user: str = "admin") -> None:
+        """
+        Write a SETTINGS_CHANGE entry to the activity log.
+        Called by the admin panel whenever a setting is saved.
+        """
+        details = f"key='{key}' | '{old_value}' → '{new_value}' | by={user}"
+        self.log_activity("SETTINGS_CHANGE", details, blocked=False)
 
     # ── Maintenance ────────────────────────────────────────────
     def cleanup_old_logs(self):
