@@ -511,28 +511,90 @@ class ExamShield:
             self._shake_window()
             return
 
-                self._login_attempts += 1
-                self.db.log_failed_login(user)
-                self._shake_window()
-                self.password_var.set("")
-                max_a = Config.LOGIN_MAX_ATTEMPTS
-                remaining = max_a - self._login_attempts
-                if self._login_attempts >= max_a:
-                    self._start_lockout(user)
+        # Disable button for the duration to prevent double-clicks
+        self._login_btn.config(state='disabled')
+
+        def _auth_work():
+            """
+            E3 — Constant-time defence.
+            Record wall-clock start time, run all auth logic, then sleep the
+            remaining delta up to LOGIN_MIN_DELAY_MS so timing attacks cannot
+            distinguish 'bad username' from 'bad password'.
+            """
+            start_ns = time.monotonic_ns()
+            min_ms = getattr(Config, 'LOGIN_MIN_DELAY_MS', 400)
+
+            def _finish(fn):
+                """Schedule UI update on Tk main thread after the minimum delay."""
+                elapsed_ms = (time.monotonic_ns() - start_ns) / 1_000_000
+                remaining_ms = max(0, min_ms - elapsed_ms)
+                self.root.after(int(remaining_ms), fn)
+
+            try:
+                # ── Check DB-persistent lockout first ──────────────────────
+                is_locked, secs_remaining, tier = self.db.get_lockout(user)
+                if is_locked:
+                    msg = (
+                        "🔒  Account permanently locked — contact administrator"
+                        if secs_remaining == -1
+                        else f"🔒  Account locked — try again in {secs_remaining}s"
+                    )
+                    def _show_locked(m=msg):
+                        self._attempt_badge.config(text=m, fg=Config.COLORS['danger'])
+                        self._login_btn.config(state='normal')
+                        self._shake_window()
+                    _finish(_show_locked)
+                    return
+
+                # ── Verify credentials (PBKDF2 handled in DB layer) ────────
+                success = self.db.verify_admin(user, pw)
+
+                if success:
+                    def _on_success():
+                        self._logged_in_user = user
+                        self._login_attempts = 0
+                        self._attempt_badge.config(text="")
+                        self.db.clear_failed_logins(user)
+                        self.db.clear_lockout(user)
+                        self._login_btn.config(state='normal')
+                        self._start_session()
+                    _finish(_on_success)
                 else:
-                    C = Config.COLORS
-                    self._attempt_badge.config(
-                        text=f"⚠️  Failed attempt {self._login_attempts}/{max_a}  "
-                             f"({remaining} left before lockout)",
-                        fg=C['danger']
-                    )
-                    messagebox.showerror(
-                        "Login Failed",
-                        "Invalid credentials!\nPlease try again.",
-                        parent=self.root
-                    )
-        except Exception as e:
-            messagebox.showerror("Error", f"Login error: {e}", parent=self.root)
+                    self._login_attempts += 1
+                    self.db.log_failed_login(user)
+                    max_a = Config.LOGIN_MAX_ATTEMPTS
+                    remaining = max_a - self._login_attempts
+                    do_lockout = self._login_attempts >= max_a
+
+                    def _on_failure(rem=remaining, do_lk=do_lockout):
+                        self._shake_window()
+                        self.password_var.set("")
+                        self._login_btn.config(state='normal')
+                        if do_lk:
+                            self._start_lockout(user)
+                        else:
+                            C = Config.COLORS
+                            self._attempt_badge.config(
+                                text=f"⚠️  Failed attempt "
+                                     f"{self._login_attempts}/{max_a}  "
+                                     f"({rem} left before lockout)",
+                                fg=C['danger']
+                            )
+                            messagebox.showerror(
+                                "Login Failed",
+                                "Invalid credentials!\nPlease try again.",
+                                parent=self.root
+                            )
+                    _finish(_on_failure)
+
+            except Exception as e:
+                def _on_error(err=e):
+                    self._login_btn.config(state='normal')
+                    messagebox.showerror("Error", f"Login error: {err}",
+                                         parent=self.root)
+                _finish(_on_error)
+
+        threading.Thread(target=_auth_work, daemon=True).start()
 
     def _start_lockout(self, username: str):
         """Persist escalating lockout to DB AND run a UI countdown."""
