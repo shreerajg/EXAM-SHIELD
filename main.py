@@ -558,7 +558,13 @@ class ExamShield:
                         self.db.clear_failed_logins(user)
                         self.db.clear_lockout(user)
                         self._login_btn.config(state='normal')
-                        self._start_session()
+
+                        # ── TOTP 2FA challenge (if enabled) ───────────────
+                        totp_mgr = TOTPManager(self.db)
+                        if totp_mgr.is_enabled() and totp_mgr.has_secret(user):
+                            self._prompt_totp(user, totp_mgr)
+                        else:
+                            self._start_session()
                     _finish(_on_success)
                 else:
                     self._login_attempts += 1
