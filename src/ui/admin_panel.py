@@ -1,5 +1,5 @@
 """
-ExamShield v1.2.0 — Admin Panel
+ExamShield v1.4.0 — Admin Panel
 Sidebar-based dark control centre.
 """
 import tkinter as tk
@@ -11,7 +11,9 @@ from src.config import Config
 from src.logger import ExamShieldLogger
 from src.managers.profile_manager import ProfileManager
 from src.managers.audit_manager import AuditManager
+from src.managers.totp_manager import TOTPManager
 from src.ui.exam_timer import ExamTimer
+from src.ui.analytics_chart import BreachTimelineChart, BreachBarChart
 
 C = Config.COLORS
 
@@ -117,9 +119,16 @@ class AdminPanel:
         # Feature managers
         self.profile_manager = ProfileManager(db_manager)
         self.profile_manager.ensure_defaults()
+        self.totp_manager = TOTPManager(db_manager)
         self._exam_timer: Optional[ExamTimer] = None
         self._active_profile_name = ""
         self._browser_proc = None
+        # Analytics chart references (set in _build_dashboard)
+        self._timeline_chart: Optional[BreachTimelineChart] = None
+        self._bar_chart: Optional[BreachBarChart] = None
+        # Timer control buttons (set in _build_dashboard)
+        self._timer_pause_btn = None
+        self._timer_extend_btn = None
 
         # Build window
         self.window = tk.Toplevel()
@@ -465,7 +474,7 @@ class AdminPanel:
 
         # Action buttons row
         btn_row = tk.Frame(ctrl, bg=C['card'])
-        btn_row.pack(fill=tk.X, padx=18, pady=(4, 16))
+        btn_row.pack(fill=tk.X, padx=18, pady=(4, 8))
 
         self._start_btn = styled_btn(btn_row, "🔒  START LOCKDOWN",
                                       self._show_lockdown_dialog,
@@ -485,6 +494,39 @@ class AdminPanel:
 
         styled_btn(btn_row, "🔄 Refresh",
                    self._refresh_status, bg=C['surface_alt'], pady=12).pack(side=tk.RIGHT)
+
+        # ── Timer controls row (shown when timer is active)
+        timer_ctrl_row = tk.Frame(ctrl, bg=C['card'])
+        timer_ctrl_row.pack(fill=tk.X, padx=18, pady=(0, 12))
+
+        tk.Label(timer_ctrl_row, text="⏱ Timer:",
+                 font=('Segoe UI', 8, 'bold'), bg=C['card'],
+                 fg=C['text_dim']).pack(side=tk.LEFT, padx=(0, 6))
+
+        self._timer_pause_btn = styled_btn(
+            timer_ctrl_row, "⏸ Pause Timer",
+            self._toggle_timer_pause,
+            bg=C['surface_alt'], pady=6
+        )
+        self._timer_pause_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self._timer_pause_btn.config(state=tk.DISABLED)
+
+        self._timer_extend_btn = styled_btn(
+            timer_ctrl_row, "+5 min",
+            lambda: self._extend_timer(5),
+            bg=C['surface_alt'], pady=6
+        )
+        self._timer_extend_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self._timer_extend_btn.config(state=tk.DISABLED)
+
+        styled_btn(
+            timer_ctrl_row, "+10 min",
+            lambda: self._extend_timer(10),
+            bg=C['surface_alt'], pady=6
+        ).pack(side=tk.LEFT)
+        # Store reference to the +10 btn so we can disable it too
+        # (last packed — find via pack_slaves)
+        self._timer_extend10_btn = timer_ctrl_row.pack_slaves()[-1]
 
         # ── Breach Counter (color-coded pills)
         section_header(pg, "Breach Counter — Current Session", C['danger'])
@@ -546,7 +588,7 @@ class AdminPanel:
         # ── Session History cards
         section_header(pg, "Session History", C['primary'])
         hist_row = tk.Frame(pg, bg=C['bg'])
-        hist_row.pack(fill=tk.X, padx=16, pady=(0, 12))
+        hist_row.pack(fill=tk.X, padx=16, pady=(0, 8))
 
         self._hist_sessions = self._stat_card(hist_row, "SESSIONS",       C['primary'], is_bar=False)
         self._hist_breaches = self._stat_card(hist_row, "TOTAL BREACHES",  C['danger'],  is_bar=False)
@@ -563,6 +605,26 @@ class AdminPanel:
                    bg=C['surface'], pady=4
                    ).pack(side=tk.LEFT, padx=(8, 0), pady=8)
         self._refresh_session_history()
+
+        # ── Live Analytics Charts
+        section_header(pg, "Live Analytics — Breach Timeline", C['info'])
+        charts_row = tk.Frame(pg, bg=C['bg'])
+        charts_row.pack(fill=tk.X, padx=16, pady=(0, 12))
+
+        # Timeline chart (wide)
+        self._timeline_chart = BreachTimelineChart(
+            charts_row, self.db, minutes=20,
+            width=560, height=180, refresh_ms=5000
+        )
+        self._timeline_chart.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+
+        # Bar chart (narrower)
+        self._bar_chart = BreachBarChart(
+            charts_row, self.db,
+            width=240, height=180, refresh_ms=5000
+        )
+        self._bar_chart.pack(side=tk.LEFT, fill=tk.Y)
+
         return pg
 
 
@@ -969,6 +1031,7 @@ class AdminPanel:
         self._build_allowed_sites_settings(inner)
         self._build_theme_settings(inner)
         self._build_advanced_settings(inner)
+        self._build_2fa_settings(inner)
         return pg
 
     def _build_keyboard_settings(self, parent):
