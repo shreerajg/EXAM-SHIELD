@@ -296,100 +296,269 @@ class ReportManager:
         try:
             from reportlab.pdfgen import canvas
             from reportlab.lib.pagesizes import letter
-            from reportlab.lib.colors import HexColor
+            from reportlab.lib.colors import HexColor, white, black
         except ImportError:
             print("[Report] reportlab not installed. Skipping PDF export.")
             return
 
         pdf_path = os.path.join(Config.REPORT_DIR, f"exam_report_{ts}.pdf")
-        
+
+        # ── Colour palette
+        BG        = HexColor("#0a0a1a")
+        PRIMARY   = HexColor("#00d4ff")
+        DANGER    = HexColor("#ff4757")
+        WARNING   = HexColor("#ffab40")
+        SUCCESS   = HexColor("#00e676")
+        SURFACE   = HexColor("#16163a")
+        BORDER    = HexColor("#252550")
+        TEXT      = HexColor("#e2e2f0")
+        TEXT_DIM  = HexColor("#6a6a9e")
+        ACCENT    = HexColor("#7f5af0")
+
+        # ── HMAC watermark key (derive from session ts for uniqueness)
+        import hmac as _hmac
+        import hashlib
+        _wm_key = hashlib.sha256(f"examshield-{ts}".encode()).hexdigest()[:32].encode()
+
+        def _page_watermark(c, page_num: int, page_w: float, page_h: float):
+            """Draw HMAC watermark footer on the current page."""
+            sig_data = f"page={page_num}|ts={ts}|v={Config.VERSION}"
+            sig = _hmac.new(_wm_key, sig_data.encode(), hashlib.sha256).hexdigest()[:24]
+            c.setFont("Helvetica", 6)
+            c.setFillColor(TEXT_DIM)
+            c.drawString(36, 18, f"ExamShield v{Config.VERSION}  |  HMAC: {sig}  |  Page {page_num}")
+            # thin footer line
+            c.setStrokeColor(BORDER)
+            c.setLineWidth(0.4)
+            c.line(36, 28, page_w - 36, 28)
+
         try:
             c = canvas.Canvas(pdf_path, pagesize=letter)
             width, height = letter
-            
-            # Title
-            c.setFont("Helvetica-Bold", 16)
-            c.setFillColor(HexColor("#00d4ff"))
-            c.drawString(50, height - 50, "EXAM SHIELD - Session Report")
-            
-            c.setFont("Helvetica", 10)
-            c.setFillColor(HexColor("#6a6a9e"))
-            c.drawString(50, height - 65, f"Generated: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}")
-            
-            # Session Info
-            c.setFont("Helvetica-Bold", 12)
-            c.setFillColor(HexColor("#000000"))
-            y = height - 100
-            c.drawString(50, y, "Session Info")
-            y -= 15
-            c.setFont("Helvetica", 10)
-            c.drawString(60, y, f"Profile: {self._profile_name or '(custom)'}"); y -= 12
-            c.drawString(60, y, f"Start: {start_str}"); y -= 12
-            c.drawString(60, y, f"End: {end_str}"); y -= 12
-            c.drawString(60, y, f"Duration: {dur_str}"); y -= 12
-            c.drawString(60, y, f"Timer set: {self._timer_minutes} min" if self._timer_minutes else "Timer set: (not used)"); y -= 20
-            
-            # Active Modules
-            c.setFont("Helvetica-Bold", 12)
-            c.drawString(50, y, "Active Modules"); y -= 15
-            c.setFont("Helvetica", 10)
+            page_num = 1
+
+            # ════════════════════════════════════════════════════════
+            # PAGE 1 — Cover / summary
+            # ════════════════════════════════════════════════════════
+
+            # Dark background
+            c.setFillColor(BG)
+            c.rect(0, 0, width, height, fill=1, stroke=0)
+
+            # Top accent bar
+            c.setFillColor(PRIMARY)
+            c.rect(0, height - 6, width, 6, fill=1, stroke=0)
+
+            # Shield icon (simple polygon approximation)
+            sx, sy = 50, height - 90
+            c.setFillColor(PRIMARY)
+            shield_pts = [
+                (sx, sy + 40), (sx + 28, sy + 40),
+                (sx + 28, sy + 12), (sx + 14, sy),
+                (sx, sy + 12)
+            ]
+            path = c.beginPath()
+            path.moveTo(*shield_pts[0])
+            for pt in shield_pts[1:]:
+                path.lineTo(*pt)
+            path.close()
+            c.drawPath(path, fill=1, stroke=0)
+            # White inner shield line
+            c.setStrokeColor(white)
+            c.setLineWidth(1.2)
+            c.line(sx + 8, sy + 22, sx + 20, sy + 22)
+
+            # Title text
+            c.setFillColor(PRIMARY)
+            c.setFont("Helvetica-Bold", 22)
+            c.drawString(90, height - 60, "EXAM SHIELD")
+            c.setFont("Helvetica-Bold", 13)
+            c.setFillColor(TEXT)
+            c.drawString(90, height - 80, "Session Integrity Report")
+            c.setFont("Helvetica", 9)
+            c.setFillColor(TEXT_DIM)
+            c.drawString(90, height - 95,
+                         f"Generated: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}"
+                         f"   ·   Version {Config.VERSION}")
+
+            # Divider line
+            c.setStrokeColor(PRIMARY)
+            c.setLineWidth(1.5)
+            c.line(36, height - 108, width - 36, height - 108)
+
+            # ── Session info grid (two columns)
+            y = height - 130
+            info_items = [
+                ("Profile",        self._profile_name or "(custom)"),
+                ("Start Time",     start_str),
+                ("End Time",       end_str),
+                ("Duration",       dur_str),
+                ("Timer Set",      f"{self._timer_minutes} min"
+                                   if self._timer_minutes else "(not used)"),
+                ("Screenshots",    str(screenshots_taken)),
+                ("Total Log Entries", str(total_events)),
+            ]
+            col_x = [36, 310]
+            for i, (label, value) in enumerate(info_items):
+                cx = col_x[i % 2]
+                # Card background
+                c.setFillColor(SURFACE)
+                c.roundRect(cx, y - 4, 240, 18, 3, fill=1, stroke=0)
+                # Label
+                c.setFont("Helvetica-Bold", 8)
+                c.setFillColor(TEXT_DIM)
+                c.drawString(cx + 6, y + 4, label.upper())
+                # Value
+                c.setFont("Helvetica-Bold", 9)
+                c.setFillColor(TEXT)
+                c.drawString(cx + 100, y + 4, str(value))
+                if i % 2 == 1:
+                    y -= 26
+
+            y -= 20
+
+            # ── Active modules badges
+            c.setFont("Helvetica-Bold", 9)
+            c.setFillColor(PRIMARY)
+            c.drawString(36, y, "ACTIVE MODULES")
+            y -= 16
+            mx = 36
             for mod in self._active_modules:
-                c.drawString(60, y, f"✓ {mod.capitalize()}"); y -= 12
-            y -= 8
-            
-            # Breach Summary
-            c.setFont("Helvetica-Bold", 12)
-            c.setFillColor(HexColor("#ff4757"))
-            c.drawString(50, y, "Breach Summary"); y -= 15
-            c.setFont("Helvetica", 10)
-            c.setFillColor(HexColor("#000000"))
-            
-            for key, label in [
-                ('keyboard', 'Blocked Keystrokes'),
-                ('network', 'Network Attempts'),
-                ('processes', 'Suspicious Processes'),
-                ('usb', 'USB Block Events'),
-                ('windows', 'Window Violations'),
-            ]:
-                v = breach_counts.get(key, 0)
-                c.drawString(60, y, f"{label}: {v}"); y -= 12
-                
+                label_text = f"  {mod.capitalize()}  "
+                text_w = len(label_text) * 5.5
+                c.setFillColor(ACCENT)
+                c.roundRect(mx, y - 3, text_w, 14, 4, fill=1, stroke=0)
+                c.setFont("Helvetica-Bold", 8)
+                c.setFillColor(white)
+                c.drawString(mx + 4, y + 1, mod.capitalize())
+                mx += text_w + 6
+                if mx > width - 80:
+                    mx = 36
+                    y -= 20
+            y -= 28
+
+            # ── Breach summary heading
             total_breaches = sum(breach_counts.values())
-            y -= 4
-            c.setFont("Helvetica-Bold", 10)
-            c.drawString(60, y, f"Total Blocked Events: {total_breaches}"); y -= 20
-            
-            # Event Log
+            c.setFillColor(SURFACE)
+            c.roundRect(36, y - 6, width - 72, 22, 4, fill=1, stroke=0)
+            c.setFont("Helvetica-Bold", 11)
+            c.setFillColor(DANGER)
+            c.drawString(42, y + 2, f"BREACH SUMMARY  —  {total_breaches} total blocked events")
+            y -= 28
+
+            # ── Breach bar chart
+            breach_categories = [
+                ('keyboard',  'Blocked Keystrokes',   PRIMARY),
+                ('processes', 'Suspicious Processes', DANGER),
+                ('network',   'Network Attempts',     WARNING),
+                ('usb',       'USB Block Events',     ACCENT),
+                ('windows',   'Window Violations',    SUCCESS),
+                ('webcam',    'Webcam Violations',    HexColor("#f43f5e")),
+                ('audio',     'Audio Violations',     HexColor("#3b82f6")),
+                ('bluetooth', 'Bluetooth Violations', HexColor("#ec4899")),
+            ]
+            bar_x0    = 160
+            bar_max_w = width - bar_x0 - 80
+            row_h     = 20
+            max_bc    = max((breach_counts.get(k, 0) for k, _, _ in breach_categories), default=1) or 1
+
+            for key, label, color in breach_categories:
+                val = breach_counts.get(key, 0)
+                bar_w = int(bar_max_w * (val / max_bc)) if max_bc > 0 else 0
+
+                # Row background
+                c.setFillColor(SURFACE)
+                c.rect(36, y - 2, width - 72, row_h - 2, fill=1, stroke=0)
+
+                # Label
+                c.setFont("Helvetica", 8)
+                c.setFillColor(TEXT_DIM)
+                c.drawString(42, y + 4, label)
+
+                # Bar bg track
+                c.setFillColor(BORDER)
+                c.rect(bar_x0, y + 2, bar_max_w, row_h - 8, fill=1, stroke=0)
+
+                # Filled bar
+                if bar_w > 0:
+                    c.setFillColor(color)
+                    c.rect(bar_x0, y + 2, bar_w, row_h - 8, fill=1, stroke=0)
+
+                # Value label
+                c.setFont("Helvetica-Bold", 8)
+                c.setFillColor(color if val > 0 else TEXT_DIM)
+                c.drawString(bar_x0 + bar_max_w + 6, y + 4, str(val))
+
+                y -= row_h
+
+            _page_watermark(c, page_num, width, height)
+            c.showPage()
+            page_num += 1
+
+            # ════════════════════════════════════════════════════════
+            # PAGE 2+ — Full blocked event log
+            # ════════════════════════════════════════════════════════
             if blocked_events:
-                y -= 10
-                c.setFont("Helvetica-Bold", 12)
-                c.setFillColor(HexColor("#000000"))
-                c.drawString(50, y, "Blocked Event Log (Sample)"); y -= 15
-                c.setFont("Helvetica", 9)
-                c.setFillColor(HexColor("#333333"))
-                
-                # Show up to 100 events to prevent huge PDFs
-                for action, details, ts_str in blocked_events[:100]:
+                # Dark background for subsequent pages
+                def _page_header(c, page_w, page_h, pg):
+                    c.setFillColor(BG)
+                    c.rect(0, 0, page_w, page_h, fill=1, stroke=0)
+                    c.setFillColor(PRIMARY)
+                    c.rect(0, page_h - 4, page_w, 4, fill=1, stroke=0)
+                    c.setFont("Helvetica-Bold", 10)
+                    c.setFillColor(PRIMARY)
+                    c.drawString(36, page_h - 22, f"ExamShield — Blocked Event Log  (page {pg})")
+                    c.setStrokeColor(BORDER)
+                    c.setLineWidth(0.5)
+                    c.line(36, page_h - 30, page_w - 36, page_h - 30)
+                    return page_h - 50
+
+                y = _page_header(c, width, height, page_num)
+
+                # Table header row
+                c.setFillColor(SURFACE)
+                c.rect(36, y - 4, width - 72, 16, fill=1, stroke=0)
+                c.setFont("Helvetica-Bold", 7)
+                c.setFillColor(PRIMARY)
+                c.drawString(40, y + 2, "TIMESTAMP")
+                c.drawString(150, y + 2, "ACTION")
+                c.drawString(300, y + 2, "DETAILS")
+                y -= 20
+
+                for i, (action, details, ts_str) in enumerate(blocked_events):
                     if y < 50:
+                        _page_watermark(c, page_num, width, height)
                         c.showPage()
-                        y = height - 50
-                        c.setFont("Helvetica", 9)
-                        c.setFillColor(HexColor("#333333"))
-                    
-                    # Truncate details to fit on a single line
-                    clean_details = (details[:80] + '...') if details and len(details) > 80 else (details or '')
-                    log_line = f"[{ts_str}] {action} - {clean_details}"
-                    c.drawString(60, y, log_line)
-                    y -= 12
-                    
-                if len(blocked_events) > 100:
-                    if y < 50:
-                        c.showPage()
-                        y = height - 50
-                        c.setFont("Helvetica", 9)
-                    c.setFillColor(HexColor("#ff4757"))
-                    c.drawString(60, y, f"... and {len(blocked_events) - 100} more events omitted.")
-                    y -= 12
+                        page_num += 1
+                        y = _page_header(c, width, height, page_num)
+
+                    row_bg = SURFACE if i % 2 == 0 else BG
+                    c.setFillColor(row_bg)
+                    c.rect(36, y - 3, width - 72, 13, fill=1, stroke=0)
+
+                    # Timestamp
+                    c.setFont("Helvetica", 7)
+                    c.setFillColor(TEXT_DIM)
+                    ts_disp = (ts_str[:16] if ts_str else "—")
+                    c.drawString(40, y + 1, ts_disp)
+
+                    # Action
+                    c.setFillColor(DANGER)
+                    c.drawString(150, y + 1, (action[:20] if action else "—"))
+
+                    # Details
+                    c.setFillColor(TEXT)
+                    clean = (details[:55] + "…") if details and len(details) > 55 else (details or "—")
+                    c.drawString(300, y + 1, clean)
+
+                    y -= 14
+
+                if len(blocked_events) >= 2000:
+                    c.setFont("Helvetica", 8)
+                    c.setFillColor(WARNING)
+                    c.drawString(40, y, "Note: Log truncated at 2000 entries.")
+
+                _page_watermark(c, page_num, width, height)
 
             c.save()
         except Exception as e:
