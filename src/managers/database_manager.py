@@ -610,6 +610,80 @@ class DatabaseManager:
         details = f"key='{key}' | '{old_value}' → '{new_value}' | by={user}"
         self.log_activity("SETTINGS_CHANGE", details, blocked=False)
 
+    # ── Analytics / Chart Data ───────────────────────────────
+    def get_breach_timeline(self, minutes: int = 20) -> list:
+        """
+        Return per-minute bucketed blocked event counts for the last *minutes*
+        minutes.  Each item is a dict with keys:
+            'label'     : HH:MM string for the minute bucket
+            'keyboard'  : count
+            'processes' : count
+            'network'   : count
+            'usb'       : count
+            'windows'   : count
+            'webcam'    : count
+            'audio'     : count
+            'bluetooth' : count
+        Ordered oldest → newest.
+        """
+        import datetime
+        categories = {
+            'keyboard':  ['KEYBOARD_BLOCKED', 'KEY_BLOCKED'],
+            'processes': ['PROCESS_BLOCKED', 'PROCESS_KILLED', 'SUSPICIOUS_PROCESS'],
+            'network':   ['NETWORK_BLOCKED', 'WEBSITE_BLOCKED', 'FIREWALL_BLOCKED'],
+            'usb':       ['USB_BLOCKED', 'USB_VIOLATION'],
+            'windows':   ['WINDOW_VIOLATION', 'FOCUS_VIOLATION', 'WINDOW_BLOCKED'],
+            'webcam':    ['WEBCAM_VIOLATION'],
+            'audio':     ['AUDIO_VIOLATION'],
+            'bluetooth': ['BLUETOOTH_VIOLATION'],
+        }
+        now = datetime.datetime.now()
+        cutoff = now - datetime.timedelta(minutes=minutes)
+
+        # Build minute buckets (oldest first)
+        buckets = []
+        for i in range(minutes):
+            t = cutoff + datetime.timedelta(minutes=i)
+            bucket = {'label': t.strftime('%H:%M')}
+            for cat in categories:
+                bucket[cat] = 0
+            buckets.append(bucket)
+
+        try:
+            with self._conn() as conn:
+                rows = conn.execute(
+                    "SELECT action, timestamp FROM activity_logs "
+                    "WHERE blocked=1 AND timestamp >= ? "
+                    "ORDER BY timestamp ASC",
+                    (cutoff.isoformat(),)
+                ).fetchall()
+
+            for action, ts_str in rows:
+                try:
+                    t = datetime.datetime.fromisoformat(ts_str.replace('Z', ''))
+                    minute_offset = int((t - cutoff).total_seconds() // 60)
+                    if 0 <= minute_offset < minutes:
+                        action_up = action.upper()
+                        for cat, keywords in categories.items():
+                            if any(kw in action_up for kw in keywords):
+                                buckets[minute_offset][cat] += 1
+                                break
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"[DB] get_breach_timeline error: {e}")
+
+        return buckets
+
+    # ── TOTP / 2FA helpers ────────────────────────────────────────
+    def is_totp_enabled(self) -> bool:
+        """Return True if TOTP 2FA is enabled globally."""
+        return self.get_setting('totp_enabled', '0') == '1'
+
+    def set_totp_enabled(self, enabled: bool):
+        """Enable or disable TOTP 2FA."""
+        self.save_setting('totp_enabled', '1' if enabled else '0')
+
     # ── Maintenance ────────────────────────────────────────────
     def cleanup_old_logs(self):
         try:
