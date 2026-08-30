@@ -1800,6 +1800,8 @@ class AdminPanel:
                     on_stop=None,
                 )
                 self._exam_timer.start()
+                # Enable timer control buttons in Dashboard
+                self._set_timer_btns_enabled(True)
 
         styled_btn(btn_f, '🚀  START LOCKDOWN', start,
                    bg=C['success'], fg='#0a0a0a'
@@ -1846,7 +1848,9 @@ class AdminPanel:
         if self._exam_timer:
             self._exam_timer.stop()
             self._exam_timer = None
-        
+        # Disable timer control buttons
+        self._set_timer_btns_enabled(False)
+
         # Kill secure browser if running
         if self._browser_proc:
             try:
