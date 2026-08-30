@@ -663,7 +663,84 @@ class ExamShield:
                 self.root.after(30, do_shake, idx + 1)
         do_shake()
 
+    def _prompt_totp(self, username: str, totp_mgr: TOTPManager):
+        """Show TOTP 6-digit code entry dialog. Calls _start_session on success."""
+        C = Config.COLORS
+        dlg = tk.Toplevel(self.root)
+        dlg.title("🔐  Two-Factor Authentication")
+        dlg.geometry("360x260")
+        dlg.configure(bg=C['bg'])
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
+        # Center
+        dlg.update_idletasks()
+        x = (dlg.winfo_screenwidth() - 360) // 2
+        y = (dlg.winfo_screenheight() - 260) // 2
+        dlg.geometry(f"360x260+{x}+{y}")
+
+        # Header
+        hdr = tk.Frame(dlg, bg=C['surface'], height=48)
+        hdr.pack(fill=tk.X)
+        hdr.pack_propagate(False)
+        tk.Label(hdr, text="🔐  Two-Factor Verification",
+                 font=("Segoe UI", 11, "bold"),
+                 bg=C['surface'], fg=C['primary']).pack(side=tk.LEFT, padx=16, pady=12)
+        tk.Frame(dlg, bg=C['border'], height=1).pack(fill=tk.X)
+
+        # Description
+        tk.Label(dlg,
+                 text=f"Open Google Authenticator and enter\nthe 6-digit code for  ExamShield",
+                 font=("Segoe UI", 9), bg=C['bg'],
+                 fg=C['text_dim'], justify=tk.CENTER).pack(pady=(16, 8))
+
+        # Code entry
+        code_var = tk.StringVar()
+        code_entry = tk.Entry(
+            dlg, textvariable=code_var,
+            font=("Consolas", 22, "bold"), width=8,
+            justify=tk.CENTER,
+            bg=C['input_bg'], fg=C['primary'],
+            relief=tk.FLAT, insertbackground=C['primary'],
+            highlightthickness=2,
+            highlightcolor=C['primary'],
+            highlightbackground=C['border']
+        )
+        code_entry.pack(pady=(0, 8))
+        code_entry.focus()
+
+        err_lbl = tk.Label(dlg, text="", font=("Segoe UI", 9, "bold"),
+                           bg=C['bg'], fg=C['danger'])
+        err_lbl.pack()
+
+        def _verify():
+            code = code_var.get().strip().replace(" ", "")
+            if len(code) != 6 or not code.isdigit():
+                err_lbl.config(text="Enter a 6-digit code")
+                return
+            if totp_mgr.verify_code(username, code):
+                dlg.destroy()
+                self._start_session()
+            else:
+                err_lbl.config(text="❌  Invalid code — try again")
+                code_var.set("")
+                code_entry.focus()
+
+        code_entry.bind("<Return>", lambda e: _verify())
+
+        btn_row = tk.Frame(dlg, bg=C['bg'])
+        btn_row.pack(fill=tk.X, padx=20, pady=12)
+        tk.Button(btn_row, text="  ✓  Verify  ", command=_verify,
+                  font=("Segoe UI", 10, "bold"),
+                  bg=C['primary'], fg='#040414',
+                  relief=tk.FLAT, cursor='hand2', pady=8).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        tk.Button(btn_row, text="Cancel", command=dlg.destroy,
+                  font=("Segoe UI", 10),
+                  bg=C['surface_alt'], fg=C['text_dim'],
+                  relief=tk.FLAT, cursor='hand2', pady=8).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(6, 0))
+
     def _start_session(self):
+
         try:
             self.root.withdraw()
             self.security = SecurityManager(self.db)
