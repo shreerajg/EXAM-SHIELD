@@ -20,6 +20,7 @@
 - **Visual Lockdown**: The app turns into a black screen in case of any bypass attempt.
 - **Clipbord manager**: Prevents copy-pasting by aggressively clearing the system clipboard while the exam is active.
 - **embedded webview**: Runs the exam inside an embedded webview instance.
+  **enhanced security**: uses SHA-256, Chain-hashing
 
 ## 🛠️ Technology Stack
 

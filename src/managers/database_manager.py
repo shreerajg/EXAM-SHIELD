@@ -79,8 +79,12 @@ def validate_password_strength(password: str) -> tuple[bool, str]:
 class DatabaseManager:
     def __init__(self):
         self.db_path = Config.DATABASE_PATH
-        self._audit_instance = None   # lazy-init to avoid circular import
+        self._audit_instance = None   # set after schema init below
         self._init_database()
+        # Eagerly initialize AuditManager and backfill any pre-existing rows.
+        # Must happen AFTER _init_database() so the schema is ready.
+        # This guarantees backfill commits before any log_activity call.
+        _ = self._audit   # triggers property → creates instance → backfills
 
     # ── Lazy AuditManager accessor ────────────────────────────────
     @property
