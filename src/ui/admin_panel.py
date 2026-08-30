@@ -1242,7 +1242,159 @@ class AdminPanel:
         styled_btn(f, 'Apply Theme', apply_theme, bg=C['surface']).pack(anchor=tk.W, pady=(4, 0))
 
     # ── Page: Logs ───────────────────────────────────────────
+    # ── 2FA Settings Card ─────────────────────────────────────────
+    def _build_2fa_settings(self, parent):
+        f = tk.LabelFrame(parent, text="🔐  Two-Factor Authentication (TOTP)",
+                           bg=C['bg'], fg=C['primary'],
+                           font=('Segoe UI', 10, 'bold'), padx=10, pady=10)
+        f.pack(fill=tk.X, padx=16, pady=(0, 16))
+
+        if not TOTPManager.is_available():
+            tk.Label(f, text="⚠  pyotp not installed. Run: pip install pyotp",
+                     bg=C['bg'], fg=C['warning'],
+                     font=('Segoe UI', 9)).pack(anchor=tk.W)
+            return
+
+        # Status line
+        status_row = tk.Frame(f, bg=C['bg'])
+        status_row.pack(fill=tk.X, pady=(0, 8))
+
+        enabled = self.totp_manager.is_enabled()
+        self._2fa_status_lbl = tk.Label(
+            status_row,
+            text=("🟢  TOTP 2FA is ENABLED" if enabled
+                  else "🔴  TOTP 2FA is DISABLED"),
+            bg=C['bg'],
+            fg=C['success'] if enabled else C['danger'],
+            font=('Segoe UI', 9, 'bold')
+        )
+        self._2fa_status_lbl.pack(side=tk.LEFT)
+
+        # Buttons
+        btn_row = tk.Frame(f, bg=C['bg'])
+        btn_row.pack(fill=tk.X, pady=(0, 4))
+
+        def _toggle_2fa():
+            if self.totp_manager.is_enabled():
+                # Disable: confirm first
+                if messagebox.askyesno(
+                        "Disable 2FA",
+                        "Disable Two-Factor Authentication?\n"
+                        "This will remove the stored TOTP secret.",
+                        parent=self.window):
+                    self.totp_manager.set_enabled(False)
+                    self.totp_manager.delete_secret('admin')
+                    self._2fa_status_lbl.config(
+                        text="🔴  TOTP 2FA is DISABLED", fg=C['danger'])
+                    self._toast("🔐 2FA disabled", C['warning'])
+            else:
+                # Enable: generate secret + show QR
+                secret = self.totp_manager.generate_secret('admin')
+                self.totp_manager.set_enabled(True)
+                self._2fa_status_lbl.config(
+                    text="🟢  TOTP 2FA is ENABLED", fg=C['success'])
+                self._toast("🔐 2FA enabled — scan QR code now!", C['success'])
+                _show_qr()
+
+        styled_btn(btn_row, "🔄  Toggle 2FA", _toggle_2fa,
+                   bg=C['surface']).pack(side=tk.LEFT, padx=(0, 8))
+
+        def _show_qr():
+            img = self.totp_manager.build_qr_image('admin', box_size=7, border=3)
+            if img is None:
+                if not self.totp_manager.has_secret('admin'):
+                    messagebox.showinfo("No Secret",
+                                        "Enable 2FA first to generate a QR code.",
+                                        parent=self.window)
+                else:
+                    messagebox.showinfo("QR Error",
+                                        "Could not build QR — qrcode library missing?\n"
+                                        "Run: pip install qrcode[pil]",
+                                        parent=self.window)
+                return
+
+            from PIL import ImageTk
+            dlg = tk.Toplevel(self.window)
+            dlg.title("🔐  Scan with Google Authenticator")
+            dlg.configure(bg=C['bg'])
+            dlg.resizable(False, False)
+            dlg.transient(self.window)
+            dlg.grab_set()
+            self._center_dialog(dlg, 320, 400)
+
+            tk.Label(dlg, text="🔐  ExamShield 2FA Setup",
+                     font=('Segoe UI', 12, 'bold'),
+                     bg=C['bg'], fg=C['primary']).pack(pady=(16, 6))
+            tk.Label(dlg,
+                     text="Open Google Authenticator and scan\nthis QR code to enroll ExamShield.",
+                     font=('Segoe UI', 9), bg=C['bg'],
+                     fg=C['text_dim'], justify=tk.CENTER).pack(pady=(0, 10))
+
+            tk_img = ImageTk.PhotoImage(img)
+            lbl = tk.Label(dlg, image=tk_img, bg=C['bg'])
+            lbl.image = tk_img   # keep reference
+            lbl.pack(padx=20, pady=4)
+
+            # Show current code (for testing)
+            code = self.totp_manager.get_current_code('admin')
+            tk.Label(dlg, text=f"Current code: {code}",
+                     font=('Consolas', 13, 'bold'),
+                     bg=C['bg'], fg=C['success']).pack(pady=6)
+            tk.Label(dlg, text="(refreshes every 30 seconds)",
+                     font=('Segoe UI', 8), bg=C['bg'],
+                     fg=C['text_dim']).pack()
+
+            styled_btn(dlg, "✓  Done", dlg.destroy,
+                       bg=C['primary'], fg='#0a0a0a').pack(pady=12)
+
+        styled_btn(btn_row, "📷  Show QR Code", _show_qr,
+                   bg=C['surface']).pack(side=tk.LEFT)
+
+        # Describe how it works
+        tk.Label(f,
+                 text=("When enabled, after entering your password you will be\n"
+                       "prompted for a 6-digit code from Google Authenticator."),
+                 font=('Segoe UI', 8), bg=C['bg'],
+                 fg=C['text_dim'], justify=tk.LEFT).pack(anchor=tk.W, pady=(8, 0))
+
+    # ── Timer helpers (from Dashboard) ────────────────────────────
+    def _toggle_timer_pause(self):
+        if not self._exam_timer or not self._exam_timer.is_running:
+            return
+        if self._exam_timer.is_paused:
+            self._exam_timer.resume()
+            if self._timer_pause_btn:
+                self._timer_pause_btn.config(text="⏸ Pause Timer")
+        else:
+            self._exam_timer.pause()
+            if self._timer_pause_btn:
+                self._timer_pause_btn.config(text="▶ Resume Timer")
+
+    def _extend_timer(self, minutes: int):
+        if not self._exam_timer or not self._exam_timer.is_running:
+            self._toast("No active exam timer", C['warning'])
+            return
+        self._exam_timer.extend(minutes)
+        self._toast(f"⏱ +{minutes} min added to timer", C['success'])
+
+    def _set_timer_btns_enabled(self, enabled: bool):
+        """Enable or disable the Pause/Extend timer buttons."""
+        state = tk.NORMAL if enabled else tk.DISABLED
+        for btn in [self._timer_pause_btn, self._timer_extend_btn,
+                    getattr(self, '_timer_extend10_btn', None)]:
+            if btn:
+                try:
+                    btn.config(state=state)
+                except Exception:
+                    pass
+        if not enabled and self._timer_pause_btn:
+            try:
+                self._timer_pause_btn.config(text="⏸ Pause Timer")
+            except Exception:
+                pass
+
     def _build_logs(self):
+
         pg = tk.Frame(self._content, bg=C['bg'])
         section_header(pg, "Activity Logs", C['info'])
         toolbar = tk.Frame(pg, bg=C['bg'])
