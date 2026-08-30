@@ -1,5 +1,5 @@
 """
-ExamShield v1.0 — Main Entry Point
+ExamShield v1.4.0 — Main Entry Point
 Animated dark-mode login → Admin Panel lifecycle.
 """
 import tkinter as tk
@@ -12,6 +12,7 @@ import time
 import threading
 from src.config import Config
 from src.managers.database_manager import DatabaseManager
+from src.managers.totp_manager import TOTPManager
 from src.ui.admin_panel import AdminPanel
 from src.managers.security_manager import SecurityManager
 from src.ui.system_tray import SystemTray
