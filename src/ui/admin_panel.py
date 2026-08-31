@@ -1672,6 +1672,11 @@ class AdminPanel:
         for p in sorted(Config.SUSPICIOUS_PROCESSES):
             self._dyn_proc_lb.insert(tk.END, p)
             
+    def _load_dyn_allow(self):
+        self._dyn_allow_lb.delete(0, tk.END)
+        for p in sorted(Config.ALLOWED_PROCESSES):
+            self._dyn_allow_lb.insert(tk.END, p)
+            
     def _load_dyn_keys(self):
         self._dyn_keys_lb.delete(0, tk.END)
         for k in sorted(self.sec.blocked_keys):
