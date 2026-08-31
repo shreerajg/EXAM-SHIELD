@@ -557,10 +557,17 @@ class DatabaseManager:
         keys_json = self.get_setting("blocked_keys")
         mouse_json = self.get_setting("blocked_mouse_buttons")
         websites_json = self.get_setting("blocked_websites")
+        allowed_procs_json = self.get_setting("allowed_processes")
+        suspicious_procs_json = self.get_setting("suspicious_processes")
+        whitelist_mode = self.get_setting("process_whitelist_mode")
+        
         return {
             "blocked_keys": json.loads(keys_json) if keys_json else None,
             "blocked_mouse": json.loads(mouse_json) if mouse_json else None,
             "blocked_websites": json.loads(websites_json) if websites_json else None,
+            "allowed_processes": json.loads(allowed_procs_json) if allowed_procs_json else None,
+            "suspicious_processes": json.loads(suspicious_procs_json) if suspicious_procs_json else None,
+            "process_whitelist_mode": (whitelist_mode == '1') if whitelist_mode is not None else None,
         }
 
     # ── Failed Login Tracking ──────────────────────────────
