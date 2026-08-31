@@ -62,3 +62,4 @@ ExamShield requires administrative permissions to manage network adapters, firew
 - **"ModuleNotFoundError"**: Make sure you have activated your virtual environment (`myenv\Scripts\activate`) before running the script.
 - **Hook Errors (Keyboard/Mouse):** Some antivirus software might flag python scripts using `keyboard` or `pynput` as suspicious. You may need to add an exception for your Python environment.
 - ** the main thing changes here that we have to do complete admin premissions and needs admin UAC prompt **
+- ** webcamm / microphome access will be granted only once when the app is started **
