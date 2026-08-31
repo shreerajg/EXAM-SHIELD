@@ -167,6 +167,22 @@ class Config:
     # ── Allowed Websites (whitelist, excluded from blocking) ─────
     ALLOWED_WEBSITES: list = []
 
+    # ── Process Management ───────────────────────────────────────
+    PROCESS_WHITELIST_MODE = False
+    
+    ALLOWED_PROCESSES = [
+        # Essential system processes
+        'svchost.exe', 'explorer.exe', 'wininit.exe', 'winlogon.exe', 
+        'csrss.exe', 'services.exe', 'lsass.exe', 'smss.exe',
+        'spoolsv.exe', 'taskhostw.exe', 'dwm.exe', 'conhost.exe',
+        'fontdrvhost.exe', 'sihost.exe', 'ctfmon.exe', 'SearchUI.exe',
+        'RuntimeBroker.exe', 'audiodg.exe',
+        # Browser if exam requires it
+        'chrome.exe', 'msedge.exe',
+        # Python/App execution
+        'python.exe', 'pythonw.exe'
+    ]
+
     # ── Suspicious Processes ─────────────────────────────────────
     SUSPICIOUS_PROCESSES = [
         # System escape tools
