@@ -184,6 +184,12 @@ class AdminPanel:
             self.sec.mouse_manager.blocked_buttons = data['blocked_mouse']
         if data['blocked_websites']:
             Config.BLOCKED_WEBSITES = data['blocked_websites']
+        if data.get('allowed_processes') is not None:
+            Config.ALLOWED_PROCESSES = data['allowed_processes']
+        if data.get('suspicious_processes') is not None:
+            Config.SUSPICIOUS_PROCESSES = data['suspicious_processes']
+        if data.get('process_whitelist_mode') is not None:
+            Config.PROCESS_WHITELIST_MODE = data['process_whitelist_mode']
 
     # ── Main UI (Sidebar + Content) ──────────────────────────────
     def _build_ui(self):
