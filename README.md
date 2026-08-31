@@ -21,7 +21,8 @@
 - **Clipbord manager**: Prevents copy-pasting by aggressively clearing the system clipboard while the exam is active.
 - **embedded webview**: Runs the exam inside an embedded webview instance.
   **enhanced security**: uses SHA-256, Chain-hashing
-  **black list apps**: allows you to add apps to a whitelist and black list 
+  **black list apps**: allows you to add apps to a whitelist and black list
+  **Webcam/Mic Detection**: Detects and prevents the use of unauthorized webcam and microphone.
 
 ## 🛠️ Technology Stack
 
