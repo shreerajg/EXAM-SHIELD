@@ -458,7 +458,18 @@ class SecurityManager:
                 for proc in psutil.process_iter(['pid', 'name']):
                     try:
                         name = proc.info['name'].lower()
-                        if name in Config.SUSPICIOUS_PROCESSES:
+                        
+                        terminate_proc = False
+                        if Config.PROCESS_WHITELIST_MODE:
+                            # In whitelist mode, if it's not explicitly allowed and not a core system process, kill it
+                            if name not in Config.ALLOWED_PROCESSES and name not in ['system idle process', 'system', 'registry', 'smss.exe']:
+                                terminate_proc = True
+                        else:
+                            # In blacklist mode, kill only if it's in the suspicious processes list
+                            if name in Config.SUSPICIOUS_PROCESSES:
+                                terminate_proc = True
+
+                        if terminate_proc:
                             self.breach_counts['processes'] += 1
                             self.log.security("SUSPICIOUS_PROCESS",
                                               f"Terminated: {name}", blocked=True)
