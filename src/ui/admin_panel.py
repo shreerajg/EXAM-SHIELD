@@ -1483,43 +1483,103 @@ class AdminPanel:
         tk.Label(inner, text="Changes made here are applied immediately to the active exam session.",
                  font=('Segoe UI', 9), bg=C['bg'], fg=C['text_dim']).pack(anchor=tk.W, padx=16, pady=(0,10))
 
-        # ── Suspicious Processes
-        f_proc = tk.LabelFrame(inner, text="🔍  Suspicious Processes",
+        # ── Process Management ───────────────────────────────────────
+        f_proc = tk.LabelFrame(inner, text="🔍  Process Management",
                            bg=C['bg'], fg=C['primary'],
                            font=('Segoe UI', 10, 'bold'), padx=10, pady=10)
         f_proc.pack(fill=tk.X, padx=16, pady=10)
         
-        row_proc = tk.Frame(f_proc, bg=C['bg'])
-        row_proc.pack(fill=tk.X, pady=(0, 6))
-        self._dyn_proc_lb = tk.Listbox(row_proc, height=6, bg=C['input_bg'], fg=C['text'],
-                                   selectbackground=C['primary_dark'], font=('Consolas', 10),
-                                   relief=tk.FLAT, highlightthickness=1, highlightcolor=C['border'])
-        self._dyn_proc_lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+        # Mode Toggle
+        mode_frame = tk.Frame(f_proc, bg=C['bg'])
+        mode_frame.pack(fill=tk.X, pady=(0, 10))
+        self._proc_mode_var = tk.BooleanVar(value=Config.PROCESS_WHITELIST_MODE)
         
+        def toggle_mode():
+            Config.PROCESS_WHITELIST_MODE = self._proc_mode_var.get()
+            self.db.save_setting('process_whitelist_mode', '1' if Config.PROCESS_WHITELIST_MODE else '0')
+            mode_text = "Whitelist (Strict)" if Config.PROCESS_WHITELIST_MODE else "Blacklist (Default)"
+            self._toast(f"Process Mode set to: {mode_text}", C['success'])
+            
+        tk.Checkbutton(mode_frame, text="Enable Strict Whitelist Mode (Only allow approved apps)",
+                       variable=self._proc_mode_var, command=toggle_mode,
+                       bg=C['bg'], fg=C['text'], selectcolor=C['input_bg'],
+                       activebackground=C['bg']).pack(anchor=tk.W)
+
+        # Split frame for Blacklist / Whitelist
+        proc_split = tk.Frame(f_proc, bg=C['bg'])
+        proc_split.pack(fill=tk.BOTH, expand=True)
+        
+        # Left: Suspicious (Blacklist)
+        left_proc = tk.Frame(proc_split, bg=C['bg'])
+        left_proc.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 4))
+        tk.Label(left_proc, text="Suspicious Processes (Blacklist)", bg=C['bg'], fg=C['danger']).pack(anchor=tk.W)
+        self._dyn_proc_lb = tk.Listbox(left_proc, height=6, bg=C['input_bg'], fg=C['text'],
+                                   selectbackground=C['primary_dark'], font=('Consolas', 9),
+                                   relief=tk.FLAT, highlightthickness=1, highlightcolor=C['border'])
+        self._dyn_proc_lb.pack(fill=tk.BOTH, expand=True, pady=(0,4))
+        
+        row_proc1 = tk.Frame(left_proc, bg=C['bg'])
+        row_proc1.pack(fill=tk.X)
         self._dyn_proc_var = tk.StringVar()
-        proc_entry = dark_entry(f_proc, self._dyn_proc_var)
-        proc_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        proc_entry1 = dark_entry(row_proc1, self._dyn_proc_var)
+        proc_entry1.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
 
         def add_proc():
             p = self._dyn_proc_var.get().strip().lower()
             if p and p not in Config.SUSPICIOUS_PROCESSES:
                 Config.SUSPICIOUS_PROCESSES.append(p)
+                self.db.save_setting("suspicious_processes", json.dumps(Config.SUSPICIOUS_PROCESSES))
                 self._dyn_proc_var.set('')
                 self._load_dyn_proc()
-                self._toast(f"Added process: {p}", C['success'])
+                self._toast(f"Added suspicious process: {p}", C['success'])
         def rm_proc():
             sel = self._dyn_proc_lb.curselection()
             if sel:
                 p = self._dyn_proc_lb.get(sel[0])
                 if p in Config.SUSPICIOUS_PROCESSES:
                     Config.SUSPICIOUS_PROCESSES.remove(p)
+                    self.db.save_setting("suspicious_processes", json.dumps(Config.SUSPICIOUS_PROCESSES))
                     self._load_dyn_proc()
-                    self._toast(f"Removed process: {p}", C['warning'])
+                    self._toast(f"Removed suspicious process: {p}", C['warning'])
+                    
+        styled_btn(row_proc1, "+", add_proc, bg=C['surface'], width=2).pack(side=tk.LEFT, padx=2)
+        styled_btn(row_proc1, "-", rm_proc, bg=C['surface'], width=2).pack(side=tk.LEFT)
+
+        # Right: Allowed (Whitelist)
+        right_proc = tk.Frame(proc_split, bg=C['bg'])
+        right_proc.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(4, 0))
+        tk.Label(right_proc, text="Allowed Processes (Whitelist)", bg=C['bg'], fg=C['success']).pack(anchor=tk.W)
+        self._dyn_allow_lb = tk.Listbox(right_proc, height=6, bg=C['input_bg'], fg=C['text'],
+                                   selectbackground=C['primary_dark'], font=('Consolas', 9),
+                                   relief=tk.FLAT, highlightthickness=1, highlightcolor=C['border'])
+        self._dyn_allow_lb.pack(fill=tk.BOTH, expand=True, pady=(0,4))
+
+        row_proc2 = tk.Frame(right_proc, bg=C['bg'])
+        row_proc2.pack(fill=tk.X)
+        self._dyn_allow_var = tk.StringVar()
+        proc_entry2 = dark_entry(row_proc2, self._dyn_allow_var)
+        proc_entry2.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
         
-        btns_proc = tk.Frame(row_proc, bg=C['bg'])
-        btns_proc.pack(side=tk.RIGHT, fill=tk.Y)
-        styled_btn(btns_proc, "Add", add_proc, bg=C['surface']).pack(fill=tk.X, pady=2)
-        styled_btn(btns_proc, "Remove", rm_proc, bg=C['surface']).pack(fill=tk.X, pady=2)
+        def add_allow():
+            p = self._dyn_allow_var.get().strip().lower()
+            if p and p not in Config.ALLOWED_PROCESSES:
+                Config.ALLOWED_PROCESSES.append(p)
+                self.db.save_setting("allowed_processes", json.dumps(Config.ALLOWED_PROCESSES))
+                self._dyn_allow_var.set('')
+                self._load_dyn_allow()
+                self._toast(f"Added allowed process: {p}", C['success'])
+        def rm_allow():
+            sel = self._dyn_allow_lb.curselection()
+            if sel:
+                p = self._dyn_allow_lb.get(sel[0])
+                if p in Config.ALLOWED_PROCESSES:
+                    Config.ALLOWED_PROCESSES.remove(p)
+                    self.db.save_setting("allowed_processes", json.dumps(Config.ALLOWED_PROCESSES))
+                    self._load_dyn_allow()
+                    self._toast(f"Removed allowed process: {p}", C['warning'])
+                    
+        styled_btn(row_proc2, "+", add_allow, bg=C['surface'], width=2).pack(side=tk.LEFT, padx=2)
+        styled_btn(row_proc2, "-", rm_allow, bg=C['surface'], width=2).pack(side=tk.LEFT)
 
         # ── Blocked Keys
         f_keys = tk.LabelFrame(inner, text="⌨  Blocked Keys",
