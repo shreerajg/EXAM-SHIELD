@@ -1663,6 +1663,7 @@ class AdminPanel:
         styled_btn(btns_web, "Remove", rm_web, bg=C['surface']).pack(fill=tk.X, pady=2)
 
         self._load_dyn_proc()
+        self._load_dyn_allow()
         self._load_dyn_keys()
         self._load_dyn_web()
         return pg
