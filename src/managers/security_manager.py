@@ -23,6 +23,7 @@ from src.managers.clipboard_manager import ClipboardManager
 from src.managers.webcam_manager import WebcamManager
 from src.managers.audio_manager import AudioManager
 from src.managers.bluetooth_manager import BluetoothManager
+from src.managers.browser_manager import BrowserManager
 from src.managers.idle_guard import IdleGuard   # Layer 6
 from src.logger import ExamShieldLogger
 
@@ -49,6 +50,7 @@ class SecurityManager:
         self.webcam_manager     = WebcamManager(db_manager)
         self.audio_manager      = AudioManager(db_manager)
         self.bluetooth_manager  = BluetoothManager(db_manager)
+        self.browser_manager    = BrowserManager(db_manager)
         
         self.webcam_manager.set_security_manager(self)
         self.audio_manager.set_security_manager(self)
@@ -179,6 +181,8 @@ class SecurityManager:
             self.audio_manager.start()
         if sel.get('bluetooth', True):
             self.bluetooth_manager.start()
+        if sel.get('clear_browser_data', True):
+            self.browser_manager.clear_all()
         # Layer 6: Start idle guard (always active during exam)
         self.idle_guard.start()
 
