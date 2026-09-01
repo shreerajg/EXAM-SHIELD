@@ -1838,42 +1838,46 @@ class AdminPanel:
                 return
 
             dlg.destroy()
-            self._active_profile_name = profile_name
-            try:
-                self.sec.start_exam_mode(opts,
-                                         profile_name=profile_name,
-                                         timer_minutes=mins)
-            except RuntimeError as e:
-                messagebox.showerror('Hardware Check Failed', str(e), parent=self.window)
-                return
-            self._start_btn.config(state=tk.DISABLED)
-            self._stop_btn.config(state=tk.NORMAL)
-            self._refresh_status()
-            self._toast("🔒 Lockdown ACTIVE", C['danger'])
-            # H6: pin admin panel on top, block minimize
-            self._enforce_topmost()
-
-            if getattr(Config, 'USE_SECURE_BROWSER', False):
+            
+            def _proceed_to_lockdown():
+                self._active_profile_name = profile_name
                 try:
-                    import subprocess
-                    url = getattr(Config, 'EXAM_URL', 'https://example.com/exam')
-                    self._browser_proc = subprocess.Popen([sys.executable, "-m", "src.ui.secure_browser", url])
-                except Exception as e:
-                    self.log.error("BROWSER", f"Failed to start secure browser: {e}")
+                    self.sec.start_exam_mode(opts,
+                                             profile_name=profile_name,
+                                             timer_minutes=mins)
+                except RuntimeError as e:
+                    messagebox.showerror('Hardware Check Failed', str(e), parent=self.window)
+                    return
+                self._start_btn.config(state=tk.DISABLED)
+                self._stop_btn.config(state=tk.NORMAL)
+                self._refresh_status()
+                self._toast("🔒 Lockdown ACTIVE", C['danger'])
+                # H6: pin admin panel on top, block minimize
+                self._enforce_topmost()
 
-            # Start floating timer if requested
-            if mins > 0:
-                if self._exam_timer:
-                    self._exam_timer.stop()
-                self._exam_timer = ExamTimer(
-                    self.window,
-                    duration_minutes=mins,
-                    on_expire=self._on_timer_expire,
-                    on_stop=None,
-                )
-                self._exam_timer.start()
-                # Enable timer control buttons in Dashboard
-                self._set_timer_btns_enabled(True)
+                if getattr(Config, 'USE_SECURE_BROWSER', False):
+                    try:
+                        import subprocess
+                        url = getattr(Config, 'EXAM_URL', 'https://example.com/exam')
+                        self._browser_proc = subprocess.Popen([sys.executable, "-m", "src.ui.secure_browser", url])
+                    except Exception as e:
+                        self.log.error("BROWSER", f"Failed to start secure browser: {e}")
+
+                # Start floating timer if requested
+                if mins > 0:
+                    if self._exam_timer:
+                        self._exam_timer.stop()
+                    self._exam_timer = ExamTimer(
+                        self.window,
+                        duration_minutes=mins,
+                        on_expire=self._on_timer_expire,
+                        on_stop=None,
+                    )
+                    self._exam_timer.start()
+                    # Enable timer control buttons in Dashboard
+                    self._set_timer_btns_enabled(True)
+
+            self._show_audit_dialog(opts, _proceed_to_lockdown)
 
         styled_btn(btn_f, '🚀  START LOCKDOWN', start,
                    bg=C['success'], fg='#0a0a0a'
@@ -1881,6 +1885,117 @@ class AdminPanel:
         styled_btn(btn_f, 'Cancel', dlg.destroy,
                    bg=C['danger'], fg='white'
                    ).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(6, 0))
+
+    def _show_audit_dialog(self, opts, on_success_callback):
+        """Displays a Pre-Exam Environment Audit checklist before lockdown."""
+        dlg = tk.Toplevel(self.window)
+        dlg.title('🔍 Pre-Exam Environment Audit')
+        dlg.geometry('500x450')
+        dlg.configure(bg=C['bg'])
+        dlg.transient(self.window)
+        dlg.grab_set()
+        self._center_dialog(dlg, 500, 450)
+
+        tk.Label(dlg, text='System Pre-flight Checks',
+                 font=('Segoe UI', 16, 'bold'), bg=C['bg'],
+                 fg=C['primary']).pack(pady=(20, 10))
+
+        list_frame = tk.Frame(dlg, bg=C['surface'], padx=20, pady=20)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=32, pady=10)
+        
+        def add_check_ui(label_text):
+            f = tk.Frame(list_frame, bg=C['surface'])
+            f.pack(fill=tk.X, pady=8)
+            status_lbl = tk.Label(f, text='[⏳]', font=('Consolas', 12, 'bold'), bg=C['surface'], fg=C['text_dim'], width=4)
+            status_lbl.pack(side=tk.LEFT)
+            desc_lbl = tk.Label(f, text=label_text, font=('Segoe UI', 11), bg=C['surface'], fg=C['text'])
+            desc_lbl.pack(side=tk.LEFT, padx=10)
+            return status_lbl
+
+        admin_lbl = add_check_ui("Administrator Privileges")
+        vm_lbl = add_check_ui("Virtual Machine Detection")
+        rdp_lbl = add_check_ui("Remote Desktop (RDP)")
+        monitor_lbl = add_check_ui("Multiple Monitors Detection")
+
+        btn_f = tk.Frame(dlg, bg=C['bg'])
+        btn_f.pack(fill=tk.X, padx=32, pady=20)
+
+        proceed_btn = styled_btn(btn_f, 'Proceed to Lockdown', lambda: [dlg.destroy(), on_success_callback()],
+                                 bg=C['success'], fg='#0a0a0a')
+        proceed_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        proceed_btn.config(state=tk.DISABLED)
+
+        cancel_btn = styled_btn(btn_f, 'Cancel', dlg.destroy, bg=C['danger'], fg='white')
+        cancel_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(6, 0))
+
+        def run_checks():
+            all_passed = True
+            import time
+            import ctypes
+
+            # 1. Admin Check
+            try:
+                is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+            except Exception:
+                is_admin = False
+            
+            if is_admin:
+                admin_lbl.config(text='[✓]', fg=C['success'])
+            else:
+                admin_lbl.config(text='[✗]', fg=C['danger'])
+                all_passed = False
+            
+            self.window.update()
+            time.sleep(0.3)
+
+            # 2. VM Check
+            check_vm_rdp = opts.get('vm_rdp', True)
+            if check_vm_rdp:
+                is_vm = self.sec.hardware.is_virtual_machine()
+                if not is_vm:
+                    vm_lbl.config(text='[✓]', fg=C['success'])
+                else:
+                    vm_lbl.config(text='[✗]', fg=C['danger'])
+                    all_passed = False
+            else:
+                vm_lbl.config(text='[-]', fg=C['text_dim'])
+            
+            self.window.update()
+            time.sleep(0.3)
+
+            # 3. RDP Check
+            if check_vm_rdp:
+                is_rdp = self.sec.hardware.is_rdp_session()
+                if not is_rdp:
+                    rdp_lbl.config(text='[✓]', fg=C['success'])
+                else:
+                    rdp_lbl.config(text='[✗]', fg=C['danger'])
+                    all_passed = False
+            else:
+                rdp_lbl.config(text='[-]', fg=C['text_dim'])
+
+            self.window.update()
+            time.sleep(0.3)
+
+            # 4. Monitors Check
+            if opts.get('multi_monitor', False):
+                has_multi = self.sec.hardware.has_multiple_monitors()
+                if has_multi:
+                    monitor_lbl.config(text='[!]', fg=C['warning'])
+                    desc_lbl = tk.Label(list_frame, text="(Secondary monitors will be disabled during lockdown)", 
+                                        font=('Segoe UI', 8), bg=C['surface'], fg=C['text_dim'])
+                    desc_lbl.pack(fill=tk.X, padx=40)
+                else:
+                    monitor_lbl.config(text='[✓]', fg=C['success'])
+            else:
+                monitor_lbl.config(text='[-]', fg=C['text_dim'])
+            
+            if all_passed:
+                proceed_btn.config(state=tk.NORMAL)
+            else:
+                tk.Label(dlg, text="Critical checks failed. Cannot proceed.", font=('Segoe UI', 9, 'bold'), fg=C['danger'], bg=C['bg']).pack(before=btn_f, pady=5)
+
+        self.window.after(500, run_checks)
 
     # ── Exam controls ────────────────────────────────────────────
     def _stop_exam(self):
