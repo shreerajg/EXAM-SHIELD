@@ -19,12 +19,30 @@ class ClipboardManager:
         if self.is_active:
             return
         self.is_active = True
+
+        # Disable Windows 10/11 Clipboard History via Registry
+        try:
+            import winreg
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Clipboard") as key:
+                winreg.SetValueEx(key, "EnableClipboardHistory", 0, winreg.REG_DWORD, 0)
+        except Exception as e:
+            self.log.error("CLIPBOARD", f"Failed to disable clipboard history: {e}")
+
         self._thread = threading.Thread(target=self._clipboard_loop, daemon=True, name="ClipboardGuard")
         self._thread.start()
         self.log.info("CLIPBOARD", "Clipboard protection started")
 
     def stop(self):
         self.is_active = False
+
+        # Restore Windows 10/11 Clipboard History via Registry
+        try:
+            import winreg
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Clipboard") as key:
+                winreg.SetValueEx(key, "EnableClipboardHistory", 1, winreg.REG_DWORD, 1)
+        except Exception as e:
+            self.log.error("CLIPBOARD", f"Failed to restore clipboard history: {e}")
+
         if self._thread:
             self._thread = None
         self.log.info("CLIPBOARD", "Clipboard protection stopped")
