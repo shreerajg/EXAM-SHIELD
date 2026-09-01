@@ -23,6 +23,9 @@
   **enhanced security**: uses SHA-256, Chain-hashing
   **black list apps**: allows you to add apps to a whitelist and black list
   **Webcam/Mic Detection**: Detects and prevents the use of unauthorized webcam and microphone.
+  **clip board cleaner**: cleares the clipboard at every 2 seconds.
+  ** browser-in-exam-shield**: runs the exam inside an embedded browser instance.
+  
 
 ## 🛠️ Technology Stack
 
