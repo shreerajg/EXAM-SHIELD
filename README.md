@@ -25,7 +25,7 @@
   **Webcam/Mic Detection**: Detects and prevents the use of unauthorized webcam and microphone.
   **clip board cleaner**: cleares the clipboard at every 2 seconds.
   ** browser-in-exam-shield**: runs the exam inside an embedded browser instance.
-  
+  **env check** : checks if the app is running in a virtual environment or not.
 
 ## 🛠️ Technology Stack
 
