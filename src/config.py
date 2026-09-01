@@ -146,6 +146,7 @@ class Config:
         'webcam': True,
         'audio': True,
         'bluetooth': True,
+        'clear_browser_data': True,
     }
 
     # ── Network Blocking ─────────────────────────────────────────
