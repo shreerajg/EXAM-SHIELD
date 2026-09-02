@@ -1,4 +1,4 @@
-# 🛡️ ExamShield v1.3
+# 🛡️ ExamShield v1.4
 
 <p align="center">
   <em>A Secure Exam Browser and Proctoring System built with Python & Tkinter.</em>

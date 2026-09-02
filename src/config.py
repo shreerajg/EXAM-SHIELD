@@ -7,7 +7,7 @@ import os
 class Config:
     # ── Application ──────────────────────────────────────────────
     APP_NAME = "Exam Shield"
-    VERSION = "1.3.0"
+    VERSION = "1.4.0"
     BUILD = "stable"
 
     # ── Secure Browser ───────────────────────────────────────────
