@@ -87,8 +87,13 @@ class ScreenshotManager:
             ts = datetime.datetime.now().strftime("%H%M%S_%f")[:12]
             filename = f"{ts}_{reason}.png"
             path = os.path.join(self.session_dir, filename)
-            img = ImageGrab.grab()
-            img = self._watermark(img, reason)   # E6: burn provenance overlay
+            img = Imagegrab.grab()
+
+            img = self._watermark(img, reason)
+
+            if Config.SCREENSHOT_BLUR:
+                img = self._blur(img)
+
             img.save(path, "PNG", optimize=True)
             with self._lock:
                 self.count += 1
@@ -143,6 +148,15 @@ class ScreenshotManager:
         except Exception:
             pass  # never crash the screenshot capture
         return img
+
+    # ── Privacy blur ─────────────────────────────────────────────
+    def _blur(self, img):
+        """Apply GaussianBlur to screenshot for privacy (only if enabled)."""
+        from PIL import ImageFilter
+        if not getattr(Config, 'SCREENSHOT_BLUR', False):
+            return img
+        radius = 8
+        return img.filter(ImageFilter.GaussianBlur(radius))
 
     def _append_manifest(self, filename: str, path: str, reason: str):
         """

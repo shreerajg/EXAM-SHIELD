@@ -25,6 +25,7 @@ class Config:
 
     # ── Screenshot Monitoring ─────────────────────────────────────
     SCREENSHOT_INTERVAL_SEC = 60    # capture every N seconds during lockdown (overridable from Settings UI)
+    SCREENSHOT_BLUR = False        # apply GaussianBlur to screenshots (privacy mode)
 
     # ── Webcam Monitoring ─────────────────────────────────────────
     WEBCAM_MONITOR_INTERVAL_SEC = 5 # check webcam every N seconds
