@@ -26,12 +26,14 @@ from src.managers.bluetooth_manager import BluetoothManager
 from src.managers.browser_manager import BrowserManager
 from src.managers.idle_guard import IdleGuard   # Layer 6
 from src.logger import ExamShieldLogger
+from src.webhook_notifier import WebhookNotifier
 
 
 class SecurityManager:
     def __init__(self, db_manager):
         self.db_manager = db_manager
         self.log = ExamShieldLogger(db_manager)
+        self.webhook = WebhookNotifier(db_manager)
         self.is_exam_mode = False
         self.blocked_keys = Config.BLOCKED_KEYS.copy()
         self.hooks_active = False
@@ -204,6 +206,9 @@ class SecurityManager:
                       f"Active modules: {', '.join(active)}"
                       + (f" | Profile: {profile_name}" if profile_name else "")
                       + (f" | Timer: {timer_minutes}m" if timer_minutes else ""))
+        # Webhook session-start alert
+        if hasattr(self, 'webhook') and profile_name:
+            self.webhook.on_session_start(profile_name, timer_minutes, active)
 
     def stop_exam_mode(self) -> str:
         """
@@ -282,6 +287,9 @@ class SecurityManager:
 
         self.log.info("EXAM_MODE_STOP",
                       f"All restrictions removed | Report: {report_path}")
+        # Webhook session-end alert
+        if hasattr(self, 'webhook'):
+            self.webhook.on_session_end(report_path, dict(self.breach_counts))
         return report_path
 
     # ── Keyboard ─────────────────────────────────────────────────
@@ -352,11 +360,14 @@ class SecurityManager:
                     )
                     self.admin_panel.window.after(
                         0, lambda c=combo: self.admin_panel._toast(
-                            f"\u2328\ufe0f  Blocked key: {c}", '#ff4757'
+                            f"⌨️  Blocked key: {c}", '#ff4757'
                         ) if hasattr(self.admin_panel, '_toast') else None
                     )
                 except Exception:
                     pass
+            # Webhook breach alert
+            if hasattr(self, 'webhook'):
+                self.webhook.on_blocked_key(combo, dict(self.breach_counts))
 
     def _on_admin_hotkey(self):
         """
@@ -501,6 +512,8 @@ class SecurityManager:
                                 reason=f"proc_{name}"
                             )
                             # Real-time breach toast
+                            if hasattr(self, 'webhook'):
+                                self.webhook.on_blocked_process(name, dict(self.breach_counts))
                             if self.admin_panel and hasattr(self.admin_panel, '_toast'):
                                 try:
                                     self.admin_panel.window.after(
