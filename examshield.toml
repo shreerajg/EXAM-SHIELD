@@ -1,0 +1,83 @@
+# ExamShield v1.4 — External Configuration Overrides
+#
+# Place this file next to main.py (project root) to override Config defaults
+# without patching source files.  See src/toml_config.py for the full list
+# of recognised keys.
+#
+# Uncomment and adjust the sections you need.
+
+[identity]
+# version = "1.4.0"        # override displayed version string
+# build = "testing"        # override build label shown in footer
+
+[exam]
+# exam_url = "https://exam.example.com"
+# use_secure_browser = true
+
+[security]
+# block_internet = true
+# full_internet_block = false   # set true to kill ALL outbound traffic
+
+[login]
+# max_attempts = 3
+# lockout_seconds = 60
+# username_max_len = 64
+# password_max_len = 256
+# min_delay_ms = 400
+
+[password_policy]
+# min_length = 10
+# require_upper = true
+# require_lower = true
+# require_digit = true
+# require_special = true
+# special_chars = "!@#$%^&*()-_=+[]{}|;:,.<>?"
+
+[blocked_keys]
+# extend_with = [            # appended to default blocked list
+#   "ctrl+shift+esc",
+#   "f5",
+# ]
+
+[blocked_websites]
+# extend_with = [            # appended to default blocked list
+#   "chat.example.com",
+# ]
+
+[allowed_websites]
+# extend_with = [            # appended to default allowed list
+#   "exam-portal.example.com",
+# ]
+
+[selective_blocking]
+# webcam = true
+# audio = true
+# bluetooth = true
+# usb = true
+# clipboard = true
+# internet = true
+# processes = true
+# mouse = true
+# keyboard = true
+# windows = true
+# vm_rdp = true
+# multi_monitor = true
+# clear_browser_data = true
+
+[monitoring]
+# screenshot_interval_sec = 60
+# webcam_interval_sec = 5
+# webcam_face_absence_tolerance = 3
+# audio_interval_sec = 2
+# audio_threshold = 50.0
+# audio_sustained_tolerance = 3
+# bluetooth_interval_sec = 5
+# process_monitor_interval = 0.5
+# idle_alert_sec = 300
+# idle_cooldown_sec = 60
+
+[themes]
+# active_theme = "emerald"   # cyan | emerald | crimson | amethyst
+
+[webhook]
+# url = "https://hooks.example.com/examshield"   # breach alerts go here

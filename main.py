@@ -18,6 +18,7 @@ from src.managers.security_manager import SecurityManager
 from src.ui.system_tray import SystemTray
 from src.logger import ExamShieldLogger
 from src.qr_auth import QRAuth
+from src.toml_config import apply_toml_to_config
 
 # ── Single-instance mutex ─────────────────────────────────────────────────────
 _MUTEX_NAME = "Global\\ExamShield_SingleInstance_Mutex"
