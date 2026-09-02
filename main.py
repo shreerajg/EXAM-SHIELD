@@ -17,6 +17,7 @@ from src.ui.admin_panel import AdminPanel
 from src.managers.security_manager import SecurityManager
 from src.ui.system_tray import SystemTray
 from src.logger import ExamShieldLogger
+from src.qr_auth import QRAuth
 
 # ── Single-instance mutex ─────────────────────────────────────────────────────
 _MUTEX_NAME = "Global\\ExamShield_SingleInstance_Mutex"
@@ -53,6 +54,7 @@ class ExamShield:
         C = Config.COLORS
         self.root.configure(bg=C['bg'])
         self.log = ExamShieldLogger(self.db)
+        self.qr_auth = QRAuth(self.db, self)
         self.security = None
         self.tray = None
         self._logged_in_user = None
@@ -337,6 +339,12 @@ class ExamShield:
         )
         self._login_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
 
+        self._qr_btn = self._make_button(
+            btn_row, "  📷  SCAN QR", self._show_qr_dialog,
+            bg=C['surface_alt'], fg=C['primary']
+        )
+        self._qr_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 6))
+
         self._exit_btn = self._make_button(
             btn_row, "✕  EXIT", self._exit,
             bg=C['surface_alt'], fg=C['text_dim']
@@ -602,6 +610,83 @@ class ExamShield:
                 _finish(_on_error)
 
         threading.Thread(target=_auth_work, daemon=True).start()
+
+    # ── QR Code Authentication ──────────────────────────────────────────────
+    def _show_qr_dialog(self):
+        """Open a modal dialog displaying a QR code for phone-based auth."""
+        C = Config.COLORS
+        tok = self.qr_auth.get_token()
+        qr_img = self.qr_auth.generate_qr_image(tok)
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Scan to Authenticate")
+        dlg.geometry("340x420")
+        dlg.resizable(False, False)
+        dlg.configure(bg=C['bg'])
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        # Center over parent
+        px = self.root.winfo_x() + (self.root.winfo_width() - 340) // 2
+        py = self.root.winfo_y() + (self.root.winfo_height() - 420) // 2
+        dlg.geometry(f"+{px}+{py}")
+
+        tk.Label(dlg, text="📷  Scan this QR with your phone",
+                 font=("Segoe UI", 12, "bold"), bg=C['bg'], fg=C['primary']
+                 ).pack(pady=(18, 6))
+
+        tk.Label(dlg, text="or visit on a browser:",
+                 font=("Segoe UI", 9), bg=C['bg'], fg=C['text_dim']
+                 ).pack(pady=(0, 4))
+
+        tk.Label(dlg, text="http://localhost:50999/examshield://auth/XXXX",
+                 font=("Consolas", 8), bg=C['bg'], fg=C['text_muted']
+                 ).pack(pady=(0, 14))
+
+        qr_lbl = tk.Label(dlg, bg=C['card'], borderwidth=2,
+                          relief=tk.SOLID, highlightbackground=C['primary'])
+        qr_lbl.pack(padx=16, pady=(0, 10))
+        qr_photo = self.qr_auth.qr_to_tk(qr_img)
+        qr_lbl.config(image=qr_photo)
+        qr_lbl.image = qr_photo  # keep reference
+
+        # Token expiry countdown
+        self._qr_timer_label = tk.Label(dlg, text="Valid: 60s",
+                                        font=("Consolas", 9, "bold"),
+                                        bg=C['bg'], fg=C['warning'])
+        self._qr_timer_label.pack(pady=(0, 8))
+
+        tk.Button(dlg, text="✕  Close", command=dlg.destroy,
+                  bg=C['surface_alt'], fg=C['text_dim'],
+                  font=("Segoe UI", 10, "bold"), relief=tk.FLAT,
+                  cursor='hand2', pady=8, bd=0
+                  ).pack(pady=(4, 10))
+
+        # Start countdown + refresh QR every 30s
+        self._qr_dialog = dlg
+        self._qr_dialog_label = qr_lbl
+        self._qr_dialog_photo = qr_photo
+        self._qr_countdown(60)
+        self.root.after(30000, self._refresh_qr_in_dialog)
+
+    def _qr_countdown(self, remaining):
+        if remaining > 0 and hasattr(self, '_qr_timer_label'):
+            self._qr_timer_label.config(text=f"Valid: {remaining}s")
+            self.root.after(1000, self._qr_countdown, remaining - 1)
+        else:
+            if hasattr(self, '_qr_timer_label'):
+                self._qr_timer_label.config(text="Expired", fg=Config.COLORS['danger'])
+
+    def _refresh_qr_in_dialog(self):
+        """Generate a fresh QR token and update the dialog image."""
+        if not hasattr(self, '_qr_dialog') or not self._qr_dialog.winfo_exists():
+            return
+        new_img = self.qr_auth.generate_qr_image()
+        new_photo = self.qr_auth.qr_to_tk(new_img)
+        self._qr_dialog_label.config(image=new_photo)
+        self._qr_dialog_label.image = new_photo
+        self._qr_dialog_photo = new_photo
+        self._qr_countdown(60)
 
     def _start_lockout(self, username: str):
         """Persist escalating lockout to DB AND run a UI countdown."""
