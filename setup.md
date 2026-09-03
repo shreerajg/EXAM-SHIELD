@@ -61,6 +61,6 @@ ExamShield requires administrative permissions to manage network adapters, firew
 - **Elevation Fails:** If the app fails to elevate itself, try opening your Command Prompt or PowerShell as an Administrator (Right-click -> "Run as administrator") before running `python main.py`.
 - **"ModuleNotFoundError"**: Make sure you have activated your virtual environment (`myenv\Scripts\activate`) before running the script.
 - **Hook Errors (Keyboard/Mouse):** Some antivirus software might flag python scripts using `keyboard` or `pynput` as suspicious. You may need to add an exception for your Python environment.
-- ** the main thing changes here that we have to do complete admin premissions and needs admin UAC prompt **
-- ** webcamm / microphome access will be granted only once when the app is started **
-- ** black list only allows same name apps to be run but it should run all apps with same name for that we have to add .exe in the black list **
+- **Complete admin permissions** — needs admin UAC prompt to run.
+- **Webcam / microphone access** — granted only once when the app starts.
+- **Blacklist apps** — only same-name apps are blocked; add `.exe` to blacklist to block all apps with that name.
