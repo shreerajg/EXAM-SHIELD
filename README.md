@@ -18,14 +18,16 @@
 - **Admin Panel**: A centralized dashboard for configuring exam rules, managing users, and viewing real-time security logs.
 - **Animated UI**: Features a sleek, dark-mode animated login screen and an intuitive user interface.
 - **Visual Lockdown**: The app turns into a black screen in case of any bypass attempt.
-- **Clipbord manager**: Prevents copy-pasting by aggressively clearing the system clipboard while the exam is active.
-- **embedded webview**: Runs the exam inside an embedded webview instance.
-  **enhanced security**: uses SHA-256, Chain-hashing
-  **black list apps**: allows you to add apps to a whitelist and black list
-  **Webcam/Mic Detection**: Detects and prevents the use of unauthorized webcam and microphone.
-  **clip board cleaner**: cleares the clipboard at every 2 seconds.
-  ** browser-in-exam-shield**: runs the exam inside an embedded browser instance.
-  **env check** : checks if the app is running in a virtual environment or not.
+- **Clipboard Manager**: Prevents copy-pasting by aggressively clearing the system clipboard while the exam is active.
+- **Embedded Webview**: Runs the exam inside an embedded webview instance for a locked-down exam experience.
+- **Enhanced Security**: Uses SHA-256 hashing and chain-hashing for tamper-evident audit logs.
+- **App Blacklist/Whitelist**: Add apps to a whitelist or blacklist to control what can run during exams.
+- **Webcam & Mic Detection**: Detects and blocks unauthorized webcam and microphone use during exams.
+- **Clipboard Cleaner**: Automatically clears the system clipboard every 2 seconds while the exam is active.
+- **Browser-in-Exam-Shield**: Runs the exam inside a locked-down embedded browser instance.
+- **Environment Check**: Detects whether the app is running inside a virtual environment.
+- **Exam Timer Overlay**: Countdown timer widget on the dashboard with pause/resume/extend and auto-submit callback when time runs out.
+- **Custom Blocked Keys**: Admin can add/remove custom key combinations (e.g. ctrl+shift+esc, f5) to block during exams, persisted in the database.
 
 ## 🛠️ Technology Stack
 
@@ -62,8 +64,8 @@
 
 ## 🚀 Usage
 
-*Note: ExamShield doesn't requires **Administrator privileges** to control system hooks, network adapters, and processes.*
-Which make s the app more reliable and more powerful without power.
+*Note: ExamShield doesn't require **Administrator privileges** to control system hooks, network adapters, and processes.*
+This makes the app lighter and easier to deploy.
 
 To launch the application:
 ```bash
