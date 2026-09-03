@@ -274,6 +274,7 @@ class AdminPanel:
             ('dashboard',    '⚡', 'Dashboard'),
             ('monitor',      '📊', 'Live Monitor'),
             ('dynamic_rules','🔄', 'Dynamic Rules'),
+            ('custom_keys',  '⌨',  'Custom Keys'),
             ('profiles',     '🏷',  'Profiles'),
             ('settings',     '⚙',  'Settings'),
             ('logs',         '📋', 'Logs'),
@@ -346,6 +347,7 @@ class AdminPanel:
         self._pages['dashboard']    = self._build_dashboard()
         self._pages['monitor']      = self._build_monitor()
         self._pages['dynamic_rules']= self._build_dynamic_rules()
+        self._pages['custom_keys']  = self._build_custom_keys()
         self._pages['profiles']     = self._build_profiles()
         self._pages['settings']     = self._build_settings()
         self._pages['logs']         = self._build_logs()
@@ -497,6 +499,16 @@ class AdminPanel:
         styled_btn(btn_row, "🚨  EMERGENCY STOP",
                    self._emergency_stop,
                    bg=C['warning'], fg='#0a0a0a', pady=12).pack(side=tk.LEFT)
+
+        # ── Exam Timer widget (placed below action buttons) ─────────────────
+        self._exam_timer: Optional[ExamTimer] = None
+        tk.Frame(pg, bg=C['border'], height=1).pack(fill=tk.X, pady=(6, 0))
+        self._timer_frame = tk.Frame(pg, bg=C['bg'])
+        self._timer_frame.pack(fill=tk.X, padx=16, pady=(8, 4))
+        self._exam_timer = ExamTimer(
+            self._timer_frame, on_expiry=self._on_timer_expiry,
+            initial_minutes=0
+        )
 
         styled_btn(btn_row, "🔄 Refresh",
                    self._refresh_status, bg=C['surface_alt'], pady=12).pack(side=tk.RIGHT)
@@ -782,6 +794,87 @@ class AdminPanel:
         self._tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
         return pg
+
+    # ── Page: Custom Blocked Keys ────────────────────────────────────────────
+    def _build_custom_keys(self):
+        """Manage user-defined custom blocked key combinations."""
+        pg = tk.Frame(self._content, bg=C['bg'])
+
+        section_header(pg, "Custom Blocked Keys", C['warning'])
+
+        tk.Label(pg, text="Add custom key combinations to block during exam.\n"
+                           "Example: ctrl+shift+esc, f5, ctrl+alt+del",
+                 font=('Segoe UI', 9), bg=C['card'], fg=C['text_dim'],
+                 justify=tk.CENTER).pack(pady=(0, 12))
+
+        input_row = tk.Frame(pg, bg=C['card'])
+        input_row.pack(fill=tk.X, padx=16, pady=(0, 8))
+
+        key_var = tk.StringVar()
+        entry = dark_entry(input_row, key_var)
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+
+        styled_btn(input_row, "➕  ADD", lambda: self._add_custom_key(key_var.get()),
+                   bg=C['primary'], fg='#040414', width=10).pack(side=tk.LEFT)
+
+        list_outer = premium_card(pg, accent=C['warning'])
+        tk.Label(list_outer, text="CUSTOM BLOCKED KEYS", font=('Segoe UI', 9, 'bold'),
+                 bg=C['card'], fg=C['warning']).pack(anchor=tk.W, pady=(0, 8))
+
+        self._custom_keys_listbox = tk.Listbox(
+            list_outer, font=('Consolas', 10), bg=C['input_bg'], fg=C['text'],
+            selectbackground=C['primary'], selectforeground=C['text_bright'],
+            highlightthickness=1, highlightcolor=C['primary'],
+            highlightbackground=C['input_border'], relief=tk.FLAT,
+            height=8, activestyle='none'
+        )
+        self._custom_keys_listbox.pack(fill=tk.BOTH, expand=True)
+
+        btn_row = tk.Frame(list_outer, bg=C['card'])
+        btn_row.pack(fill=tk.X, pady=(8, 0))
+
+        styled_btn(btn_row, "🗑  REMOVE SELECTED", self._remove_custom_key,
+                   bg=C['danger'], fg='white', width=14).pack(side=tk.LEFT, padx=(0, 6))
+        styled_btn(btn_row, "🔄  REFRESH", self._refresh_custom_keys,
+                   bg=C['surface_alt'], fg=C['text_dim'], width=10).pack(side=tk.LEFT)
+
+        self._refresh_custom_keys()
+        return pg
+
+    # ── Custom keys callbacks ──────────────────────────────────────
+    def _add_custom_key(self, combo):
+        combo = combo.strip().lower()
+        if not combo:
+            return
+        if combo in self.sec.blocked_keys:
+            messagebox.showinfo("Already Blocked", f"'{combo}' is already blocked.")
+            return
+        valid_parts = {'ctrl', 'alt', 'shift', 'win', 'fn'}
+        parts = combo.replace('+', ' ').split()
+        if not all(p in valid_parts or len(p) <= 4 for p in parts):
+            messagebox.showerror("Invalid Format", "Use format: ctrl+alt+del or f5")
+            return
+        self.sec.add_custom_blocked_key(combo)
+        self._refresh_custom_keys()
+        messagebox.showinfo("Success", f"'{combo}' added to blocked keys.")
+
+    def _remove_custom_key(self):
+        selection = self._custom_keys_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Select a key to remove.")
+            return
+        idx = selection[0]
+        combo = self._custom_keys_listbox.get(idx)
+        self.sec.remove_custom_blocked_key(combo)
+        self._refresh_custom_keys()
+        messagebox.showinfo("Removed", f"'{combo}' removed from blocked keys.")
+
+    def _refresh_custom_keys(self):
+        lb = self._custom_keys_listbox
+        lb.delete(0, tk.END)
+        for k in self.sec.blocked_keys:
+            if k not in Config.BLOCKED_KEYS and k not in ['ctrl+shift+y', 'ctrl+shift+h']:
+                lb.insert(tk.END, k)
 
     # ── Page: Profiles ────────────────────────────────────────────
     def _build_profiles(self):
