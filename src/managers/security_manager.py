@@ -81,6 +81,9 @@ class SecurityManager:
         self._session_profile   = ""
         self._session_timer_min = 0
 
+        # Load any custom blocked keys persisted in DB
+        self.load_custom_blocked_keys()
+
         # Layer 3: Session seal state
         self._session_id: str   = ""
         self._session_seal: str = ""  # HMAC-SHA256 computed at start
